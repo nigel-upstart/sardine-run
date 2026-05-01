@@ -1,18 +1,12 @@
 ---
 tracker:
-  kind: linear
-  project_slug: "symphony-0c79b11b75ea"
+  kind: traffic_control
+  state_repo: "$TRAFFIC_CONTROL_STATE_REPO"
   active_states:
-    - Todo
-    - In Progress
-    - Merging
-    - Rework
+    - active
   terminal_states:
-    - Closed
-    - Cancelled
-    - Canceled
-    - Duplicate
-    - Done
+    - done
+    - archived
 polling:
   interval_ms: 5000
 workspace:
@@ -36,7 +30,7 @@ codex:
     type: workspaceWrite
 ---
 
-You are working on a Linear ticket `{{ issue.identifier }}`
+You are working on a Traffic Control session `{{ issue.identifier }}`
 
 {% if attempt %}
 Continuation context:

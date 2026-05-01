@@ -3,8 +3,6 @@ defmodule SymphonyElixir.CoreTest do
 
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: nil,
-      tracker_project_slug: nil,
       poll_interval_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
@@ -13,9 +11,8 @@ defmodule SymphonyElixir.CoreTest do
 
     config = Config.settings!()
     assert config.polling.interval_ms == 30_000
-    assert config.tracker.active_states == ["Todo", "In Progress"]
-    assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
-    assert config.tracker.assignee == nil
+    assert config.tracker.active_states == ["active"]
+    assert config.tracker.terminal_states == ["done", "archived"]
     assert config.agent.max_turns == 20
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
@@ -41,15 +38,18 @@ defmodule SymphonyElixir.CoreTest do
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "tracker.active_states"
 
+    previous_state_repo_env = System.get_env("TRAFFIC_CONTROL_STATE_REPO")
+    System.delete_env("TRAFFIC_CONTROL_STATE_REPO")
+    on_exit(fn -> restore_env("TRAFFIC_CONTROL_STATE_REPO", previous_state_repo_env) end)
+
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: "token",
-      tracker_project_slug: nil
+      tracker_kind: "traffic_control",
+      tracker_state_repo: nil
     )
 
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
+    assert {:error, :missing_state_repo} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_project_slug: "project",
       codex_command: ""
     )
 
@@ -98,8 +98,7 @@ defmodule SymphonyElixir.CoreTest do
 
     tracker = Map.get(config, "tracker", %{})
     assert is_map(tracker)
-    assert Map.get(tracker, "kind") == "linear"
-    assert is_binary(Map.get(tracker, "project_slug"))
+    assert Map.get(tracker, "kind") == "traffic_control"
     assert is_list(Map.get(tracker, "active_states"))
     assert is_list(Map.get(tracker, "terminal_states"))
 
@@ -113,40 +112,6 @@ defmodule SymphonyElixir.CoreTest do
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
     assert Config.workflow_prompt() == prompt
-  end
-
-  test "linear api token resolves from LINEAR_API_KEY env var" do
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-    env_api_key = "test-linear-api-key"
-
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-    System.put_env("LINEAR_API_KEY", env_api_key)
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: nil,
-      tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
-    )
-
-    assert Config.settings!().tracker.api_key == env_api_key
-    assert Config.settings!().tracker.project_slug == "project"
-    assert :ok = Config.validate!()
-  end
-
-  test "linear assignee resolves from LINEAR_ASSIGNEE env var" do
-    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
-    env_assignee = "dev@example.com"
-
-    on_exit(fn -> restore_env("LINEAR_ASSIGNEE", previous_linear_assignee) end)
-    System.put_env("LINEAR_ASSIGNEE", env_assignee)
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_assignee: nil,
-      tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
-    )
-
-    assert Config.settings!().tracker.assignee == env_assignee
   end
 
   test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
@@ -183,9 +148,9 @@ defmodule SymphonyElixir.CoreTest do
 
   test "workflow load accepts unterminated front matter with an empty prompt" do
     workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "UNTERMINATED_WORKFLOW.md")
-    File.write!(workflow_path, "---\ntracker:\n  kind: linear\n")
+    File.write!(workflow_path, "---\ntracker:\n  kind: traffic_control\n")
 
-    assert {:ok, %{config: %{"tracker" => %{"kind" => "linear"}}, prompt: "", prompt_template: ""}} =
+    assert {:ok, %{config: %{"tracker" => %{"kind" => "traffic_control"}}, prompt: "", prompt_template: ""}} =
              Workflow.load(workflow_path)
   end
 
@@ -220,8 +185,8 @@ defmodule SymphonyElixir.CoreTest do
     GenServer.stop(pid)
   end
 
-  test "linear issue state reconciliation fetch with no running issues is a no-op" do
-    assert {:ok, []} = Client.fetch_issue_states_by_ids([])
+  test "issue state reconciliation fetch with no running issues is a no-op" do
+    assert {:ok, []} = Tracker.fetch_issue_states_by_ids([])
   end
 
   test "non-active issue state stops running agent without cleaning workspace" do
@@ -429,6 +394,11 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "reconcile updates running issue state for active issues" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["todo", "in progress"],
+      tracker_terminal_states: ["closed", "done"]
+    )
+
     issue_id = "issue-3"
 
     state = %Orchestrator.State{
@@ -761,7 +731,7 @@ defmodule SymphonyElixir.CoreTest do
   defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
 
   test "fetch issues by states with empty state set is a no-op" do
-    assert {:ok, []} = Client.fetch_issues_by_states([])
+    assert {:ok, []} = Tracker.fetch_issues_by_states([])
   end
 
   test "prompt builder renders issue and attempt values from workflow template" do
@@ -883,7 +853,7 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
-    assert prompt =~ "You are working on a Linear issue."
+    assert prompt =~ "You are working on a Traffic Control session."
     assert prompt =~ "Identifier: MT-777"
     assert prompt =~ "Title: Make fallback prompt useful"
     assert prompt =~ "Body:"
@@ -959,7 +929,7 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt =~ "You are working on a Linear ticket `MT-616`"
+    assert prompt =~ "You are working on a Traffic Control session `MT-616`"
     assert prompt =~ "Issue context:"
     assert prompt =~ "Identifier: MT-616"
     assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
@@ -1295,7 +1265,9 @@ defmodule SymphonyElixir.CoreTest do
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
         codex_command: "#{codex_binary} app-server",
-        max_turns: 3
+        max_turns: 3,
+        tracker_active_states: ["in progress"],
+        tracker_terminal_states: ["done"]
       )
 
       parent = self()
@@ -1425,7 +1397,9 @@ defmodule SymphonyElixir.CoreTest do
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
         codex_command: "#{codex_binary} app-server",
-        max_turns: 2
+        max_turns: 2,
+        tracker_active_states: ["in progress"],
+        tracker_terminal_states: ["done"]
       )
 
       state_fetcher = fn [_issue_id] ->
