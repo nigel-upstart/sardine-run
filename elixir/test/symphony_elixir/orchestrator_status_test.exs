@@ -971,7 +971,12 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "Timestamp:"
   end
 
-  test "status dashboard renders linear project link in header" do
+  test "status dashboard renders state repo path in header" do
+    state_repo = make_state_repo!()
+    on_exit(fn -> File.rm_rf!(state_repo) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_state_repo: state_repo)
+
     snapshot_data =
       {:ok,
        %{
@@ -983,7 +988,8 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "https://linear.app/project/project/issues"
+    assert rendered =~ "│ State repo:"
+    assert rendered =~ state_repo
     refute rendered =~ "Dashboard:"
   end
 
@@ -1011,8 +1017,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
-    assert rendered =~ "│ Project:"
-    assert rendered =~ "https://linear.app/project/project/issues"
+    assert rendered =~ "│ State repo:"
     assert rendered =~ "│ Dashboard:"
     assert rendered =~ "http://127.0.0.1:4000/"
   end
@@ -1389,7 +1394,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       {"item/fileChange/outputDelta", %{"params" => %{"outputDelta" => "changed"}}, "file change output streaming"},
       {"item/commandExecution/requestApproval", %{"params" => %{"parsedCmd" => "git status"}}, "command approval requested (git status)"},
       {"item/fileChange/requestApproval", %{"params" => %{"fileChangeCount" => 2}}, "file change approval requested (2 files)"},
-      {"item/tool/call", %{"params" => %{"tool" => "linear_graphql"}}, "dynamic tool call requested (linear_graphql)"},
+      {"item/tool/call", %{"params" => %{"tool" => "sardine_run_session"}}, "dynamic tool call requested (sardine_run_session)"},
       {"item/tool/requestUserInput", %{"params" => %{"question" => "Continue?"}}, "tool requires user input: Continue?"}
     ]
 
@@ -1407,14 +1412,14 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     completed = %{
       event: :tool_call_completed,
       message: %{
-        payload: %{"method" => "item/tool/call", "params" => %{"name" => "linear_graphql"}}
+        payload: %{"method" => "item/tool/call", "params" => %{"name" => "sardine_run_session"}}
       }
     }
 
     failed = %{
       event: :tool_call_failed,
       message: %{
-        payload: %{"method" => "item/tool/call", "params" => %{"tool" => "linear_graphql"}}
+        payload: %{"method" => "item/tool/call", "params" => %{"tool" => "sardine_run_session"}}
       }
     }
 
@@ -1426,10 +1431,10 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     assert StatusDashboard.humanize_codex_message(completed) =~
-             "dynamic tool call completed (linear_graphql)"
+             "dynamic tool call completed (sardine_run_session)"
 
     assert StatusDashboard.humanize_codex_message(failed) =~
-             "dynamic tool call failed (linear_graphql)"
+             "dynamic tool call failed (sardine_run_session)"
 
     assert StatusDashboard.humanize_codex_message(unsupported) =~
              "unsupported dynamic tool call rejected (unknown_tool)"
@@ -1507,7 +1512,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         "method" => "codex/event/agent_reasoning",
         "params" => %{
           "msg" => %{
-            "payload" => %{"summaryText" => "compare retry paths for Linear polling"}
+            "payload" => %{"summaryText" => "compare retry paths for tracker polling"}
           }
         }
       }
@@ -1534,7 +1539,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     assert StatusDashboard.humanize_codex_message(reasoning_message) =~
-             "reasoning update: compare retry paths for Linear polling"
+             "reasoning update: compare retry paths for tracker polling"
 
     assert StatusDashboard.humanize_codex_message(message_delta) =~
              "agent message streaming: writing workpad reconciliation update"
