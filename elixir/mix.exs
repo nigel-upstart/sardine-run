@@ -1,9 +1,9 @@
-defmodule SymphonyElixir.MixProject do
+defmodule SardineRun.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :symphony_elixir,
+      app: :sardine_run,
       version: "0.1.0",
       elixir: "~> 1.19",
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
@@ -13,29 +13,29 @@ defmodule SymphonyElixir.MixProject do
           threshold: 100
         ],
         ignore_modules: [
-          SymphonyElixir.Config,
-          SymphonyElixir.SpecsCheck,
-          SymphonyElixir.Orchestrator,
-          SymphonyElixir.Orchestrator.State,
-          SymphonyElixir.AgentRunner,
-          SymphonyElixir.CLI,
-          SymphonyElixir.Codex.AppServer,
-          SymphonyElixir.Codex.DynamicTool,
-          SymphonyElixir.HttpServer,
-          SymphonyElixir.StatusDashboard,
-          SymphonyElixir.LogFile,
-          SymphonyElixir.Workspace,
-          SymphonyElixirWeb.DashboardLive,
-          SymphonyElixirWeb.Endpoint,
-          SymphonyElixirWeb.ErrorHTML,
-          SymphonyElixirWeb.ErrorJSON,
-          SymphonyElixirWeb.Layouts,
-          SymphonyElixirWeb.ObservabilityApiController,
-          SymphonyElixirWeb.Presenter,
-          SymphonyElixirWeb.StaticAssetController,
-          SymphonyElixirWeb.StaticAssets,
-          SymphonyElixirWeb.Router,
-          SymphonyElixirWeb.Router.Helpers
+          SardineRun.Config,
+          SardineRun.SpecsCheck,
+          SardineRun.Orchestrator,
+          SardineRun.Orchestrator.State,
+          SardineRun.AgentRunner,
+          SardineRun.CLI,
+          SardineRun.Codex.AppServer,
+          SardineRun.Codex.DynamicTool,
+          SardineRun.HttpServer,
+          SardineRun.StatusDashboard,
+          SardineRun.LogFile,
+          SardineRun.Workspace,
+          SardineRunWeb.DashboardLive,
+          SardineRunWeb.Endpoint,
+          SardineRunWeb.ErrorHTML,
+          SardineRunWeb.ErrorJSON,
+          SardineRunWeb.Layouts,
+          SardineRunWeb.ObservabilityApiController,
+          SardineRunWeb.Presenter,
+          SardineRunWeb.StaticAssetController,
+          SardineRunWeb.StaticAssets,
+          SardineRunWeb.Router,
+          SardineRunWeb.Router.Helpers
         ]
       ],
       test_ignore_filters: [
@@ -54,7 +54,7 @@ defmodule SymphonyElixir.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      mod: {SymphonyElixir.Application, []},
+      mod: {SardineRun.Application, []},
       extra_applications: [:logger]
     ]
   end
@@ -89,9 +89,9 @@ defmodule SymphonyElixir.MixProject do
   defp escript do
     [
       app: nil,
-      main_module: SymphonyElixir.CLI,
-      name: "symphony",
-      path: "bin/symphony"
+      main_module: SardineRun.CLI,
+      name: "sardine-run",
+      path: "bin/sardine-run"
     ]
   end
 end
