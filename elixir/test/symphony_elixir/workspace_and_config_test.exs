@@ -3,7 +3,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   alias Ecto.Changeset
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
-  alias SymphonyElixir.Linear.Client
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =
@@ -295,7 +294,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert :ok = Workspace.remove_issue_workspaces(nil)
   end
 
-  test "linear issue helpers" do
+  test "issue helpers expose label names and worker routing" do
     issue = %Issue{
       id: "abc",
       labels: ["frontend", "infra"],
@@ -305,157 +304,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Issue.label_names(issue) == ["frontend", "infra"]
     assert issue.labels == ["frontend", "infra"]
     refute issue.assigned_to_worker
-  end
-
-  test "linear client normalizes blockers from inverse relations" do
-    raw_issue = %{
-      "id" => "issue-1",
-      "identifier" => "MT-1",
-      "title" => "Blocked todo",
-      "description" => "Needs dependency",
-      "priority" => 2,
-      "state" => %{"name" => "Todo"},
-      "branchName" => "mt-1",
-      "url" => "https://example.org/issues/MT-1",
-      "assignee" => %{
-        "id" => "user-1"
-      },
-      "labels" => %{"nodes" => [%{"name" => "Backend"}]},
-      "inverseRelations" => %{
-        "nodes" => [
-          %{
-            "type" => "blocks",
-            "issue" => %{
-              "id" => "issue-2",
-              "identifier" => "MT-2",
-              "state" => %{"name" => "In Progress"}
-            }
-          },
-          %{
-            "type" => "relatesTo",
-            "issue" => %{
-              "id" => "issue-3",
-              "identifier" => "MT-3",
-              "state" => %{"name" => "Done"}
-            }
-          }
-        ]
-      },
-      "createdAt" => "2026-01-01T00:00:00Z",
-      "updatedAt" => "2026-01-02T00:00:00Z"
-    }
-
-    issue = Client.normalize_issue_for_test(raw_issue, "user-1")
-
-    assert issue.blocked_by == [%{id: "issue-2", identifier: "MT-2", state: "In Progress"}]
-    assert issue.labels == ["backend"]
-    assert issue.priority == 2
-    assert issue.state == "Todo"
-    assert issue.assignee_id == "user-1"
-    assert issue.assigned_to_worker
-  end
-
-  test "linear client marks explicitly unassigned issues as not routed to worker" do
-    raw_issue = %{
-      "id" => "issue-99",
-      "identifier" => "MT-99",
-      "title" => "Someone else's task",
-      "state" => %{"name" => "Todo"},
-      "assignee" => %{
-        "id" => "user-2"
-      }
-    }
-
-    issue = Client.normalize_issue_for_test(raw_issue, "user-1")
-
-    refute issue.assigned_to_worker
-  end
-
-  test "linear client pagination merge helper preserves issue ordering" do
-    issue_page_1 = [
-      %Issue{id: "issue-1", identifier: "MT-1"},
-      %Issue{id: "issue-2", identifier: "MT-2"}
-    ]
-
-    issue_page_2 = [
-      %Issue{id: "issue-3", identifier: "MT-3"}
-    ]
-
-    merged = Client.merge_issue_pages_for_test([issue_page_1, issue_page_2])
-
-    assert Enum.map(merged, & &1.identifier) == ["MT-1", "MT-2", "MT-3"]
-  end
-
-  test "linear client paginates issue state fetches by id beyond one page" do
-    issue_ids = Enum.map(1..55, &"issue-#{&1}")
-    first_batch_ids = Enum.take(issue_ids, 50)
-    second_batch_ids = Enum.drop(issue_ids, 50)
-
-    raw_issue = fn issue_id ->
-      suffix = String.replace_prefix(issue_id, "issue-", "")
-
-      %{
-        "id" => issue_id,
-        "identifier" => "MT-#{suffix}",
-        "title" => "Issue #{suffix}",
-        "description" => "Description #{suffix}",
-        "state" => %{"name" => "In Progress"},
-        "labels" => %{"nodes" => []},
-        "inverseRelations" => %{"nodes" => []}
-      }
-    end
-
-    graphql_fun = fn query, variables ->
-      send(self(), {:fetch_issue_states_page, query, variables})
-
-      body = %{
-        "data" => %{
-          "issues" => %{
-            "nodes" => Enum.map(variables.ids, raw_issue)
-          }
-        }
-      }
-
-      {:ok, body}
-    end
-
-    assert {:ok, issues} = Client.fetch_issue_states_by_ids_for_test(issue_ids, graphql_fun)
-
-    assert Enum.map(issues, & &1.id) == issue_ids
-
-    assert_receive {:fetch_issue_states_page, query, %{ids: ^first_batch_ids, first: 50, relationFirst: 50}}
-    assert query =~ "SymphonyLinearIssuesById"
-
-    assert_receive {:fetch_issue_states_page, ^query, %{ids: ^second_batch_ids, first: 5, relationFirst: 50}}
-  end
-
-  test "linear client logs response bodies for non-200 graphql responses" do
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert {:error, {:linear_api_status, 400}} =
-                 Client.graphql(
-                   "query Viewer { viewer { id } }",
-                   %{},
-                   request_fun: fn _payload, _headers ->
-                     {:ok,
-                      %{
-                        status: 400,
-                        body: %{
-                          "errors" => [
-                            %{
-                              "message" => "Variable \"$ids\" got invalid value",
-                              "extensions" => %{"code" => "BAD_USER_INPUT"}
-                            }
-                          ]
-                        }
-                      }}
-                   end
-                 )
-      end)
-
-    assert log =~ "Linear GraphQL request failed status=400"
-    assert log =~ ~s(body=%{"errors" => [%{"extensions" => %{"code" => "BAD_USER_INPUT"})
-    assert log =~ "Variable \\\"$ids\\\" got invalid value"
   end
 
   test "orchestrator sorts dispatch by priority then oldest created_at" do
@@ -517,8 +365,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "issue assigned to another worker is not dispatch-eligible" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_assignee: "dev@example.com")
-
     state = %Orchestrator.State{
       max_concurrent_agents: 3,
       running: %{},
@@ -539,6 +385,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "todo issue with terminal blockers remains dispatch-eligible" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["todo", "in progress"],
+      tracker_terminal_states: ["closed", "done"]
+    )
+
     state = %Orchestrator.State{
       max_concurrent_agents: 3,
       running: %{},
@@ -720,10 +571,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "config reads defaults for optional settings" do
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-    System.delete_env("LINEAR_API_KEY")
-
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: nil,
       max_concurrent_agents: nil,
@@ -732,15 +579,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       codex_turn_sandbox_policy: nil,
       codex_turn_timeout_ms: nil,
       codex_read_timeout_ms: nil,
-      codex_stall_timeout_ms: nil,
-      tracker_api_token: nil,
-      tracker_project_slug: nil
+      codex_stall_timeout_ms: nil
     )
 
     config = Config.settings!()
-    assert config.tracker.endpoint == "https://api.linear.app/graphql"
-    assert config.tracker.api_key == nil
-    assert config.tracker.project_slug == nil
+    assert config.tracker.kind == "traffic_control"
+    assert is_binary(config.tracker.state_repo)
+    assert config.tracker.active_states == ["active"]
+    assert config.tracker.terminal_states == ["done", "archived"]
     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
@@ -887,61 +733,34 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.settings!().codex.command == "codex app-server"
   end
 
-  test "config resolves $VAR references for env-backed secret and path values" do
+  test "config resolves $VAR references for env-backed path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
-    api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
+    state_repo_env_var = "SYMP_STATE_REPO_#{System.unique_integer([:positive])}"
     workspace_root = Path.join("/tmp", "symphony-workspace-root")
-    api_key = "resolved-secret"
+    state_repo = Path.join("/tmp", "tc-state-resolved")
     codex_bin = Path.join(["~", "bin", "codex"])
 
     previous_workspace_root = System.get_env(workspace_env_var)
-    previous_api_key = System.get_env(api_key_env_var)
+    previous_state_repo = System.get_env(state_repo_env_var)
 
     System.put_env(workspace_env_var, workspace_root)
-    System.put_env(api_key_env_var, api_key)
+    System.put_env(state_repo_env_var, state_repo)
 
     on_exit(fn ->
       restore_env(workspace_env_var, previous_workspace_root)
-      restore_env(api_key_env_var, previous_api_key)
+      restore_env(state_repo_env_var, previous_state_repo)
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: "$#{api_key_env_var}",
+      tracker_state_repo: "$#{state_repo_env_var}",
       workspace_root: "$#{workspace_env_var}",
       codex_command: "#{codex_bin} app-server"
     )
 
     config = Config.settings!()
-    assert config.tracker.api_key == api_key
+    assert config.tracker.state_repo == state_repo
     assert config.workspace.root == Path.expand(workspace_root)
     assert config.codex.command == "#{codex_bin} app-server"
-  end
-
-  test "config no longer resolves legacy env: references" do
-    workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
-    api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
-    workspace_root = Path.join("/tmp", "symphony-workspace-root")
-    api_key = "resolved-secret"
-
-    previous_workspace_root = System.get_env(workspace_env_var)
-    previous_api_key = System.get_env(api_key_env_var)
-
-    System.put_env(workspace_env_var, workspace_root)
-    System.put_env(api_key_env_var, api_key)
-
-    on_exit(fn ->
-      restore_env(workspace_env_var, previous_workspace_root)
-      restore_env(api_key_env_var, previous_api_key)
-    end)
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: "env:#{api_key_env_var}",
-      workspace_root: "env:#{workspace_env_var}"
-    )
-
-    config = Config.settings!()
-    assert config.tracker.api_key == "env:#{api_key_env_var}"
-    assert config.workspace.root == "env:#{workspace_env_var}"
   end
 
   test "config supports per-state max concurrent agent overrides" do
@@ -1006,34 +825,30 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
   test "schema parse normalizes policy keys and env-backed fallbacks" do
     missing_workspace_env = "SYMP_MISSING_WORKSPACE_#{System.unique_integer([:positive])}"
-    empty_secret_env = "SYMP_EMPTY_SECRET_#{System.unique_integer([:positive])}"
-    missing_secret_env = "SYMP_MISSING_SECRET_#{System.unique_integer([:positive])}"
+    missing_state_repo_env = "SYMP_MISSING_STATE_REPO_#{System.unique_integer([:positive])}"
 
     previous_missing_workspace_env = System.get_env(missing_workspace_env)
-    previous_empty_secret_env = System.get_env(empty_secret_env)
-    previous_missing_secret_env = System.get_env(missing_secret_env)
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
+    previous_missing_state_repo_env = System.get_env(missing_state_repo_env)
+    previous_state_repo_env = System.get_env("TRAFFIC_CONTROL_STATE_REPO")
 
     System.delete_env(missing_workspace_env)
-    System.put_env(empty_secret_env, "")
-    System.delete_env(missing_secret_env)
-    System.put_env("LINEAR_API_KEY", "fallback-linear-token")
+    System.delete_env(missing_state_repo_env)
+    System.delete_env("TRAFFIC_CONTROL_STATE_REPO")
 
     on_exit(fn ->
       restore_env(missing_workspace_env, previous_missing_workspace_env)
-      restore_env(empty_secret_env, previous_empty_secret_env)
-      restore_env(missing_secret_env, previous_missing_secret_env)
-      restore_env("LINEAR_API_KEY", previous_linear_api_key)
+      restore_env(missing_state_repo_env, previous_missing_state_repo_env)
+      restore_env("TRAFFIC_CONTROL_STATE_REPO", previous_state_repo_env)
     end)
 
     assert {:ok, settings} =
              Schema.parse(%{
-               tracker: %{api_key: "$#{empty_secret_env}"},
+               tracker: %{state_repo: "$#{missing_state_repo_env}"},
                workspace: %{root: "$#{missing_workspace_env}"},
                codex: %{approval_policy: %{reject: %{sandbox_approval: true}}}
              })
 
-    assert settings.tracker.api_key == nil
+    assert settings.tracker.state_repo == nil
     assert settings.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
 
     assert settings.codex.approval_policy == %{
@@ -1042,11 +857,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert {:ok, settings} =
              Schema.parse(%{
-               tracker: %{api_key: "$#{missing_secret_env}"},
+               tracker: %{state_repo: ""},
                workspace: %{root: ""}
              })
 
-    assert settings.tracker.api_key == "fallback-linear-token"
+    assert settings.tracker.state_repo == nil
     assert settings.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
   end
 
