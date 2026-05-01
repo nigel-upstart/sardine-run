@@ -1,14 +1,14 @@
-defmodule SymphonyElixir.WorkspaceAndConfigTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.WorkspaceAndConfigTest do
+  use SardineRun.TestSupport
   alias Ecto.Changeset
-  alias SymphonyElixir.Config.Schema
-  alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
+  alias SardineRun.Config.Schema
+  alias SardineRun.Config.Schema.{Codex, StringOrMap}
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-hook-bootstrap-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-hook-bootstrap-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -43,7 +43,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-deterministic-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-deterministic-#{System.unique_integer([:positive])}"
       )
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
@@ -59,7 +59,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-reuse-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-reuse-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -95,7 +95,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-stale-path-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-stale-path-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -105,7 +105,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
-      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(stale_workspace)
+      assert {:ok, canonical_workspace} = SardineRun.PathSafety.canonicalize(stale_workspace)
       assert {:ok, workspace} = Workspace.create_for_issue("MT-STALE")
       assert workspace == canonical_workspace
       assert File.dir?(workspace)
@@ -118,7 +118,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-symlink-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-symlink-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -132,8 +132,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
-      assert {:ok, canonical_outside_root} = SymphonyElixir.PathSafety.canonicalize(outside_root)
-      assert {:ok, canonical_workspace_root} = SymphonyElixir.PathSafety.canonicalize(workspace_root)
+      assert {:ok, canonical_outside_root} = SardineRun.PathSafety.canonicalize(outside_root)
+      assert {:ok, canonical_workspace_root} = SardineRun.PathSafety.canonicalize(workspace_root)
 
       assert {:error, {:workspace_outside_root, ^canonical_outside_root, ^canonical_workspace_root}} =
                Workspace.create_for_issue("MT-SYM")
@@ -146,7 +146,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-root-symlink-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-root-symlink-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -159,7 +159,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: linked_root)
 
       assert {:ok, canonical_workspace} =
-               SymphonyElixir.PathSafety.canonicalize(Path.join(actual_root, "MT-LINK"))
+               SardineRun.PathSafety.canonicalize(Path.join(actual_root, "MT-LINK"))
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-LINK")
       assert workspace == canonical_workspace
@@ -173,7 +173,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-root-remove-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-root-remove-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -181,7 +181,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
       assert {:ok, canonical_workspace_root} =
-               SymphonyElixir.PathSafety.canonicalize(workspace_root)
+               SardineRun.PathSafety.canonicalize(workspace_root)
 
       assert {:error, {:workspace_equals_root, ^canonical_workspace_root, ^canonical_workspace_root}, ""} =
                Workspace.remove(workspace_root)
@@ -194,7 +194,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-hook-failure-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-hook-failure-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -214,7 +214,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-hook-timeout-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-hook-timeout-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -235,14 +235,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-workspace-empty-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-empty-#{System.unique_integer([:positive])}"
       )
 
     try do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
       workspace = Path.join(workspace_root, "MT-608")
-      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(workspace)
+      assert {:ok, canonical_workspace} = SardineRun.PathSafety.canonicalize(workspace)
 
       assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
       assert File.dir?(workspace)
@@ -256,7 +256,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-issue-workspace-cleanup-#{System.unique_integer([:positive])}"
+        "sardine-run-issue-workspace-cleanup-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -282,7 +282,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     missing_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-missing-workspaces-#{System.unique_integer([:positive])}"
+        "sardine-run-missing-workspaces-#{System.unique_integer([:positive])}"
       )
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: missing_root)
@@ -439,7 +439,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     random_path =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-missing-#{System.unique_integer([:positive])}"
+        "sardine-run-missing-#{System.unique_integer([:positive])}"
       )
 
     assert {:ok, []} = Workspace.remove(random_path)
@@ -449,7 +449,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-hooks-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-hooks-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -487,7 +487,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-hooks-fail-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-hooks-fail-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -512,7 +512,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-hooks-large-fail-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-hooks-large-fail-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -534,22 +534,22 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "workspace remove continues when before_remove hook times out" do
-    previous_timeout = Application.get_env(:symphony_elixir, :workspace_hook_timeout_ms)
+    previous_timeout = Application.get_env(:sardine_run, :workspace_hook_timeout_ms)
 
     on_exit(fn ->
       if is_nil(previous_timeout) do
-        Application.delete_env(:symphony_elixir, :workspace_hook_timeout_ms)
+        Application.delete_env(:sardine_run, :workspace_hook_timeout_ms)
       else
-        Application.put_env(:symphony_elixir, :workspace_hook_timeout_ms, previous_timeout)
+        Application.put_env(:sardine_run, :workspace_hook_timeout_ms, previous_timeout)
       end
     end)
 
-    Application.put_env(:symphony_elixir, :workspace_hook_timeout_ms, 10)
+    Application.put_env(:sardine_run, :workspace_hook_timeout_ms, 10)
 
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-workspace-hooks-timeout-#{System.unique_integer([:positive])}"
+        "sardine-run-workspace-hooks-timeout-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -587,7 +587,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert is_binary(config.tracker.state_repo)
     assert config.tracker.active_states == ["active"]
     assert config.tracker.terminal_states == ["done", "archived"]
-    assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
+    assert config.workspace.root == Path.join(System.tmp_dir!(), "sardine_run_workspaces")
     assert config.worker.max_concurrent_agents_per_host == nil
     assert config.agent.max_concurrent_agents == 10
     assert config.codex.command == "codex app-server"
@@ -603,7 +603,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.codex.thread_sandbox == "workspace-write"
 
     assert {:ok, canonical_default_workspace_root} =
-             SymphonyElixir.PathSafety.canonicalize(Path.join(System.tmp_dir!(), "symphony_workspaces"))
+             SardineRun.PathSafety.canonicalize(Path.join(System.tmp_dir!(), "sardine_run_workspaces"))
 
     assert Config.codex_turn_sandbox_policy() == %{
              "type" => "workspaceWrite",
@@ -628,7 +628,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     explicit_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-explicit-sandbox-root-#{System.unique_integer([:positive])}"
+        "sardine-run-explicit-sandbox-root-#{System.unique_integer([:positive])}"
       )
 
     explicit_workspace = Path.join(explicit_root, "MT-EXPLICIT")
@@ -736,7 +736,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "config resolves $VAR references for env-backed path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     state_repo_env_var = "SYMP_STATE_REPO_#{System.unique_integer([:positive])}"
-    workspace_root = Path.join("/tmp", "symphony-workspace-root")
+    workspace_root = Path.join("/tmp", "sardine-run-workspace-root")
     state_repo = Path.join("/tmp", "tc-state-resolved")
     codex_bin = Path.join(["~", "bin", "codex"])
 
@@ -849,7 +849,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              })
 
     assert settings.tracker.state_repo == nil
-    assert settings.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
+    assert settings.workspace.root == Path.join(System.tmp_dir!(), "sardine_run_workspaces")
 
     assert settings.codex.approval_policy == %{
              "reject" => %{"sandbox_approval" => true}
@@ -862,7 +862,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              })
 
     assert settings.tracker.state_repo == nil
-    assert settings.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
+    assert settings.workspace.root == Path.join(System.tmp_dir!(), "sardine_run_workspaces")
   end
 
   test "schema resolves sandbox policies from explicit and default workspaces" do
@@ -878,7 +878,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              workspace: %Schema.Workspace{root: ""}
            }) == %{
              "type" => "workspaceWrite",
-             "writableRoots" => [Path.expand(Path.join(System.tmp_dir!(), "symphony_workspaces"))],
+             "writableRoots" => [Path.expand(Path.join(System.tmp_dir!(), "sardine_run_workspaces"))],
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => false,
              "excludeTmpdirEnvVar" => false,
@@ -904,15 +904,15 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "schema keeps workspace roots raw while sandbox helpers expand only for local use" do
     assert {:ok, settings} =
              Schema.parse(%{
-               workspace: %{root: "~/.symphony-workspaces"},
+               workspace: %{root: "~/.sardine-run-workspaces"},
                codex: %{}
              })
 
-    assert settings.workspace.root == "~/.symphony-workspaces"
+    assert settings.workspace.root == "~/.sardine-run-workspaces"
 
     assert Schema.resolve_turn_sandbox_policy(settings) == %{
              "type" => "workspaceWrite",
-             "writableRoots" => [Path.expand("~/.symphony-workspaces")],
+             "writableRoots" => [Path.expand("~/.sardine-run-workspaces")],
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => false,
              "excludeTmpdirEnvVar" => false,
@@ -924,7 +924,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert remote_policy == %{
              "type" => "workspaceWrite",
-             "writableRoots" => ["~/.symphony-workspaces"],
+             "writableRoots" => ["~/.sardine-run-workspaces"],
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => false,
              "excludeTmpdirEnvVar" => false,
@@ -936,7 +936,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-runtime-sandbox-#{System.unique_integer([:positive])}"
+        "sardine-run-runtime-sandbox-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -986,14 +986,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     expanded_path = Path.expand(path)
 
     assert {:error, {:path_canonicalize_failed, ^expanded_path, :enametoolong}} =
-             SymphonyElixir.PathSafety.canonicalize(path)
+             SardineRun.PathSafety.canonicalize(path)
   end
 
   test "runtime sandbox policy resolution defaults when omitted and ignores workspace for explicit policies" do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-runtime-sandbox-branches-#{System.unique_integer([:positive])}"
+        "sardine-run-runtime-sandbox-branches-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1007,7 +1007,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       settings = Config.settings!()
 
       assert {:ok, canonical_workspace_root} =
-               SymphonyElixir.PathSafety.canonicalize(workspace_root)
+               SardineRun.PathSafety.canonicalize(workspace_root)
 
       assert {:ok, default_policy} = Schema.resolve_runtime_turn_sandbox_policy(settings)
       assert default_policy["type"] == "workspaceWrite"
@@ -1052,35 +1052,35 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-remote-workspace-#{System.unique_integer([:positive])}"
+        "sardine-run-remote-workspace-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")
-    previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
+    previous_trace = System.get_env("SARDINE_RUN_TEST_SSH_TRACE")
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      restore_env("SYMP_TEST_SSH_TRACE", previous_trace)
+      restore_env("SARDINE_RUN_TEST_SSH_TRACE", previous_trace)
     end)
 
     try do
       trace_file = Path.join(test_root, "ssh.trace")
       fake_ssh = Path.join(test_root, "ssh")
-      workspace_root = "~/.symphony-remote-workspaces"
-      workspace_path = "/remote/home/.symphony-remote-workspaces/MT-SSH-WS"
+      workspace_root = "~/.sardine-run-remote-workspaces"
+      workspace_path = "/remote/home/.sardine-run-remote-workspaces/MT-SSH-WS"
 
       File.mkdir_p!(test_root)
-      System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
+      System.put_env("SARDINE_RUN_TEST_SSH_TRACE", trace_file)
       System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
 
       File.write!(fake_ssh, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/symphony-fake-ssh.trace}"
+      trace_file="${SARDINE_RUN_TEST_SSH_TRACE:-/tmp/sardine-run-fake-ssh.trace}"
       printf 'ARGV:%s\\n' "$*" >> "$trace_file"
 
       case "$*" in
-        *"__SYMPHONY_WORKSPACE__"*)
-          printf '%s\\t%s\\t%s\\n' '__SYMPHONY_WORKSPACE__' '1' '#{workspace_path}'
+        *"__SARDINE_RUN_WORKSPACE__"*)
+          printf '%s\\t%s\\t%s\\n' '__SARDINE_RUN_WORKSPACE__' '1' '#{workspace_path}'
           ;;
       esac
 
@@ -1106,8 +1106,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       trace = File.read!(trace_file)
       assert trace =~ "-p 2200 worker-01 bash -lc"
-      assert trace =~ "__SYMPHONY_WORKSPACE__"
-      assert trace =~ "~/.symphony-remote-workspaces/MT-SSH-WS"
+      assert trace =~ "__SARDINE_RUN_WORKSPACE__"
+      assert trace =~ "~/.sardine-run-remote-workspaces/MT-SSH-WS"
       assert trace =~ "${workspace#~/}"
       assert trace =~ "echo before-run"
       assert trace =~ "echo after-run"

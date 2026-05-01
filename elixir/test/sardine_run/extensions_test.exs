@@ -1,13 +1,13 @@
-defmodule SymphonyElixir.ExtensionsTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.ExtensionsTest do
+  use SardineRun.TestSupport
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias SymphonyElixir.Tracker.Memory
-  alias SymphonyElixir.TrafficControl.Adapter, as: TrafficControlAdapter
+  alias SardineRun.Tracker.Memory
+  alias SardineRun.TrafficControl.Adapter, as: TrafficControlAdapter
 
-  @endpoint SymphonyElixirWeb.Endpoint
+  @endpoint SardineRunWeb.Endpoint
 
   defmodule SlowOrchestrator do
     use GenServer
@@ -48,10 +48,10 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   setup do
-    endpoint_config = Application.get_env(:symphony_elixir, SymphonyElixirWeb.Endpoint, [])
+    endpoint_config = Application.get_env(:sardine_run, SardineRunWeb.Endpoint, [])
 
     on_exit(fn ->
-      Application.put_env(:symphony_elixir, SymphonyElixirWeb.Endpoint, endpoint_config)
+      Application.put_env(:sardine_run, SardineRunWeb.Endpoint, endpoint_config)
     end)
 
     :ok
@@ -77,10 +77,10 @@ defmodule SymphonyElixir.ExtensionsTest do
     Workflow.set_workflow_file_path(third_workflow)
     assert {:ok, %{prompt: "Third prompt"}} = Workflow.current()
 
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, WorkflowStore)
+    assert :ok = Supervisor.terminate_child(SardineRun.Supervisor, WorkflowStore)
     assert {:ok, %{prompt: "Third prompt"}} = WorkflowStore.current()
     assert :ok = WorkflowStore.force_reload()
-    assert {:ok, _pid} = Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore)
+    assert {:ok, _pid} = Supervisor.restart_child(SardineRun.Supervisor, WorkflowStore)
   end
 
   test "workflow store init stops on missing workflow file" do
@@ -96,7 +96,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     manual_path = Path.join(Path.dirname(existing_path), "MANUAL_WORKFLOW.md")
     missing_path = Path.join(Path.dirname(existing_path), "MANUAL_MISSING_WORKFLOW.md")
 
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, WorkflowStore)
+    assert :ok = Supervisor.terminate_child(SardineRun.Supervisor, WorkflowStore)
 
     Workflow.set_workflow_file_path(missing_path)
 
@@ -128,7 +128,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert_receive :poll, 1_100
 
     Process.exit(manual_pid, :normal)
-    restart_result = Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore)
+    restart_result = Supervisor.restart_child(SardineRun.Supervisor, WorkflowStore)
 
     assert match?({:ok, _pid}, restart_result) or
              match?({:error, {:already_started, _pid}}, restart_result)
@@ -139,21 +139,21 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   test "tracker delegates to memory and traffic_control adapters" do
     issue = %Issue{id: "issue-1", identifier: "MT-1", state: "In Progress"}
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue, %{id: "ignored"}])
-    Application.put_env(:symphony_elixir, :memory_tracker_recipient, self())
+    Application.put_env(:sardine_run, :memory_tracker_issues, [issue, %{id: "ignored"}])
+    Application.put_env(:sardine_run, :memory_tracker_recipient, self())
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
 
     assert Config.settings!().tracker.kind == "memory"
-    assert SymphonyElixir.Tracker.adapter() == Memory
-    assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_candidate_issues()
-    assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
-    assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
-    assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
-    assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Done")
+    assert SardineRun.Tracker.adapter() == Memory
+    assert {:ok, [^issue]} = SardineRun.Tracker.fetch_candidate_issues()
+    assert {:ok, [^issue]} = SardineRun.Tracker.fetch_issues_by_states([" in progress ", 42])
+    assert {:ok, [^issue]} = SardineRun.Tracker.fetch_issue_states_by_ids(["issue-1"])
+    assert :ok = SardineRun.Tracker.create_comment("issue-1", "comment")
+    assert :ok = SardineRun.Tracker.update_issue_state("issue-1", "Done")
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
     assert_receive {:memory_tracker_state_update, "issue-1", "Done"}
 
-    Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
+    Application.delete_env(:sardine_run, :memory_tracker_recipient)
     assert :ok = Memory.create_comment("issue-1", "quiet")
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
 
@@ -165,7 +165,7 @@ defmodule SymphonyElixir.ExtensionsTest do
       tracker_state_repo: state_repo
     )
 
-    assert SymphonyElixir.Tracker.adapter() == TrafficControlAdapter
+    assert SardineRun.Tracker.adapter() == TrafficControlAdapter
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do
@@ -523,13 +523,13 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   defp start_test_endpoint(overrides) do
     endpoint_config =
-      :symphony_elixir
-      |> Application.get_env(SymphonyElixirWeb.Endpoint, [])
+      :sardine_run
+      |> Application.get_env(SardineRunWeb.Endpoint, [])
       |> Keyword.merge(server: false, secret_key_base: String.duplicate("s", 64))
       |> Keyword.merge(overrides)
 
-    Application.put_env(:symphony_elixir, SymphonyElixirWeb.Endpoint, endpoint_config)
-    start_supervised!({SymphonyElixirWeb.Endpoint, []})
+    Application.put_env(:sardine_run, SardineRunWeb.Endpoint, endpoint_config)
+    start_supervised!({SardineRunWeb.Endpoint, []})
   end
 
   defp static_snapshot do
@@ -590,7 +590,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     if Process.whereis(WorkflowStore) do
       :ok
     else
-      case Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore) do
+      case Supervisor.restart_child(SardineRun.Supervisor, WorkflowStore) do
         {:ok, _pid} -> :ok
         {:error, {:already_started, _pid}} -> :ok
       end

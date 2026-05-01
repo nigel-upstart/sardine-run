@@ -1,5 +1,5 @@
-defmodule SymphonyElixir.OrchestratorStatusTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.OrchestratorStatusTest do
+  use SardineRun.TestSupport
 
   test "snapshot returns :timeout when snapshot server is unresponsive" do
     server_name = Module.concat(__MODULE__, :UnresponsiveSnapshotServer)
@@ -994,17 +994,17 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "status dashboard renders dashboard url on its own line when server port is configured" do
-    previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
+    previous_port_override = Application.get_env(:sardine_run, :server_port_override)
 
     on_exit(fn ->
       if is_nil(previous_port_override) do
-        Application.delete_env(:symphony_elixir, :server_port_override)
+        Application.delete_env(:sardine_run, :server_port_override)
       else
-        Application.put_env(:symphony_elixir, :server_port_override, previous_port_override)
+        Application.put_env(:sardine_run, :server_port_override, previous_port_override)
       end
     end)
 
-    Application.put_env(:symphony_elixir, :server_port_override, 4000)
+    Application.put_env(:sardine_run, :server_port_override, 4000)
 
     snapshot_data =
       {:ok,
@@ -1132,11 +1132,11 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   test "status dashboard coalesces rapid updates to one render per interval" do
     dashboard_name = Module.concat(__MODULE__, :RenderDashboard)
     parent = self()
-    orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
+    orchestrator_pid = Process.whereis(SardineRun.Orchestrator)
 
     on_exit(fn ->
-      if is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
-        case Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator) do
+      if is_nil(Process.whereis(SardineRun.Orchestrator)) do
+        case Supervisor.restart_child(SardineRun.Supervisor, SardineRun.Orchestrator) do
           {:ok, _pid} -> :ok
           {:error, {:already_started, _pid}} -> :ok
         end
@@ -1144,7 +1144,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     end)
 
     if is_pid(orchestrator_pid) do
-      assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
+      assert :ok = Supervisor.terminate_child(SardineRun.Supervisor, SardineRun.Orchestrator)
     end
 
     {:ok, pid} =
@@ -1267,7 +1267,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "application configures a rotating file logger handler" do
-    assert {:ok, handler_config} = :logger.get_handler_config(:symphony_disk_log)
+    assert {:ok, handler_config} = :logger.get_handler_config(:sardine_run_disk_log)
     assert handler_config.module == :logger_disk_log_h
 
     disk_config = handler_config.config
@@ -1550,7 +1550,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   test "application stop renders offline status" do
     rendered =
       ExUnit.CaptureIO.capture_io(fn ->
-        assert :ok = SymphonyElixir.Application.stop(:normal)
+        assert :ok = SardineRun.Application.stop(:normal)
       end)
 
     assert rendered =~ "app_status=offline"

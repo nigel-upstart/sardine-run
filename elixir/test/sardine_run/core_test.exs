@@ -1,5 +1,5 @@
-defmodule SymphonyElixir.CoreTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.CoreTest do
+  use SardineRun.TestSupport
 
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -161,14 +161,14 @@ defmodule SymphonyElixir.CoreTest do
     assert {:error, :workflow_front_matter_not_a_map} = Workflow.load(workflow_path)
   end
 
-  test "SymphonyElixir.start_link delegates to the orchestrator" do
+  test "SardineRun.start_link delegates to the orchestrator" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
-    orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
+    Application.put_env(:sardine_run, :memory_tracker_issues, [])
+    orchestrator_pid = Process.whereis(SardineRun.Orchestrator)
 
     on_exit(fn ->
-      if is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
-        case Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator) do
+      if is_nil(Process.whereis(SardineRun.Orchestrator)) do
+        case Supervisor.restart_child(SardineRun.Supervisor, SardineRun.Orchestrator) do
           {:ok, _pid} -> :ok
           {:error, {:already_started, _pid}} -> :ok
         end
@@ -176,11 +176,11 @@ defmodule SymphonyElixir.CoreTest do
     end)
 
     if is_pid(orchestrator_pid) do
-      assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
+      assert :ok = Supervisor.terminate_child(SardineRun.Supervisor, SardineRun.Orchestrator)
     end
 
-    assert {:ok, pid} = SymphonyElixir.start_link()
-    assert Process.whereis(SymphonyElixir.Orchestrator) == pid
+    assert {:ok, pid} = SardineRun.start_link()
+    assert Process.whereis(SardineRun.Orchestrator) == pid
 
     GenServer.stop(pid)
   end
@@ -193,7 +193,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-nonactive-reconcile-#{System.unique_integer([:positive])}"
+        "sardine-run-nonactive-reconcile-#{System.unique_integer([:positive])}"
       )
 
     issue_id = "issue-1"
@@ -256,7 +256,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-terminal-reconcile-#{System.unique_integer([:positive])}"
+        "sardine-run-terminal-reconcile-#{System.unique_integer([:positive])}"
       )
 
     issue_id = "issue-2"
@@ -319,10 +319,10 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-missing-running-reconcile-#{System.unique_integer([:positive])}"
+        "sardine-run-missing-running-reconcile-#{System.unique_integer([:positive])}"
       )
 
-    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
+    previous_memory_issues = Application.get_env(:sardine_run, :memory_tracker_issues)
     issue_id = "issue-missing"
     issue_identifier = "MT-557"
 
@@ -335,7 +335,7 @@ defmodule SymphonyElixir.CoreTest do
         poll_interval_ms: 30_000
       )
 
-      Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
+      Application.put_env(:sardine_run, :memory_tracker_issues, [])
 
       orchestrator_name = Module.concat(__MODULE__, :MissingRunningIssueOrchestrator)
       {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
@@ -351,7 +351,7 @@ defmodule SymphonyElixir.CoreTest do
       Process.sleep(50)
 
       assert {:ok, workspace} =
-               SymphonyElixir.PathSafety.canonicalize(Path.join(test_root, issue_identifier))
+               SardineRun.PathSafety.canonicalize(Path.join(test_root, issue_identifier))
 
       File.mkdir_p!(workspace)
 
@@ -727,8 +727,8 @@ defmodule SymphonyElixir.CoreTest do
     assert remaining_ms <= max_remaining_ms
   end
 
-  defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
-  defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
+  defp restore_app_env(key, nil), do: Application.delete_env(:sardine_run, key)
+  defp restore_app_env(key, value), do: Application.put_env(:sardine_run, key, value)
 
   test "fetch issues by states with empty state set is a no-op" do
     assert {:ok, []} = Tracker.fetch_issues_by_states([])
@@ -884,17 +884,17 @@ defmodule SymphonyElixir.CoreTest do
 
   test "prompt builder reports workflow load failures separately from template parse errors" do
     original_workflow_path = Workflow.workflow_file_path()
-    workflow_store_pid = Process.whereis(SymphonyElixir.WorkflowStore)
+    workflow_store_pid = Process.whereis(SardineRun.WorkflowStore)
 
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
 
-      if is_pid(workflow_store_pid) and is_nil(Process.whereis(SymphonyElixir.WorkflowStore)) do
-        Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
+      if is_pid(workflow_store_pid) and is_nil(Process.whereis(SardineRun.WorkflowStore)) do
+        Supervisor.restart_child(SardineRun.Supervisor, SardineRun.WorkflowStore)
       end
     end)
 
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
+    assert :ok = Supervisor.terminate_child(SardineRun.Supervisor, SardineRun.WorkflowStore)
 
     Workflow.set_workflow_file_path(Path.join(System.tmp_dir!(), "missing-workflow-#{System.unique_integer([:positive])}.md"))
 
@@ -966,7 +966,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-retain-workspace-#{System.unique_integer([:positive])}"
+        "sardine-run-agent-runner-retain-workspace-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1050,7 +1050,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-updates-#{System.unique_integer([:positive])}"
+        "sardine-run-agent-runner-updates-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1138,15 +1138,15 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-single-host-#{System.unique_integer([:positive])}"
+        "sardine-run-agent-runner-single-host-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")
-    previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
+    previous_trace = System.get_env("SARDINE_RUN_TEST_SSH_TRACE")
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      restore_env("SYMP_TEST_SSH_TRACE", previous_trace)
+      restore_env("SARDINE_RUN_TEST_SSH_TRACE", previous_trace)
     end)
 
     try do
@@ -1154,21 +1154,21 @@ defmodule SymphonyElixir.CoreTest do
       fake_ssh = Path.join(test_root, "ssh")
 
       File.mkdir_p!(test_root)
-      System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
+      System.put_env("SARDINE_RUN_TEST_SSH_TRACE", trace_file)
       System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
 
       File.write!(fake_ssh, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/symphony-fake-ssh.trace}"
+      trace_file="${SARDINE_RUN_TEST_SSH_TRACE:-/tmp/sardine-run-fake-ssh.trace}"
       printf 'ARGV:%s\\n' "$*" >> "$trace_file"
 
       case "$*" in
-        *worker-a*"__SYMPHONY_WORKSPACE__"*)
+        *worker-a*"__SARDINE_RUN_WORKSPACE__"*)
           printf '%s\\n' 'worker-a prepare failed' >&2
           exit 75
           ;;
-        *worker-b*"__SYMPHONY_WORKSPACE__"*)
-          printf '%s\\t%s\\t%s\\n' '__SYMPHONY_WORKSPACE__' '1' '/remote/home/.symphony-remote-workspaces/MT-SSH-FAILOVER'
+        *worker-b*"__SARDINE_RUN_WORKSPACE__"*)
+          printf '%s\\t%s\\t%s\\n' '__SARDINE_RUN_WORKSPACE__' '1' '/remote/home/.sardine-run-remote-workspaces/MT-SSH-FAILOVER'
           exit 0
           ;;
         *)
@@ -1180,7 +1180,7 @@ defmodule SymphonyElixir.CoreTest do
       File.chmod!(fake_ssh, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
-        workspace_root: "~/.symphony-remote-workspaces",
+        workspace_root: "~/.sardine-run-remote-workspaces",
         worker_ssh_hosts: ["worker-a", "worker-b"]
       )
 
@@ -1208,7 +1208,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-continuation-#{System.unique_integer([:positive])}"
+        "sardine-run-agent-runner-continuation-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1341,7 +1341,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-agent-runner-max-turns-#{System.unique_integer([:positive])}"
+        "sardine-run-agent-runner-max-turns-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1440,7 +1440,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-args-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-args-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1510,7 +1510,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert {:ok, _result} = AppServer.run(workspace, "Fix workspace start args", issue)
-      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(workspace)
+      assert {:ok, canonical_workspace} = SardineRun.PathSafety.canonicalize(workspace)
 
       trace = File.read!(trace_file)
       lines = String.split(trace, "\n", trim: true)
@@ -1586,7 +1586,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-custom-args-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-custom-args-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1671,7 +1671,7 @@ defmodule SymphonyElixir.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-policy-overrides-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-policy-overrides-#{System.unique_integer([:positive])}"
       )
 
     try do

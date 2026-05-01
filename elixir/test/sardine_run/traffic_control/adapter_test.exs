@@ -1,7 +1,7 @@
-defmodule SymphonyElixir.TrafficControl.AdapterTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.TrafficControl.AdapterTest do
+  use SardineRun.TestSupport
 
-  alias SymphonyElixir.TrafficControl.Adapter
+  alias SardineRun.TrafficControl.Adapter
 
   setup do
     state_repo = make_state_repo!()
@@ -46,7 +46,7 @@ defmodule SymphonyElixir.TrafficControl.AdapterTest do
         id: "abc123",
         title: "Implement traffic_control adapter",
         objective: "Add an Elixir tracker adapter",
-        focus: "lib/symphony_elixir/traffic_control/adapter.ex",
+        focus: "lib/sardine_run/traffic_control/adapter.ex",
         next_step: "Write more tests",
         status: "active",
         branch: "feat/tc-adapter",
@@ -70,7 +70,7 @@ defmodule SymphonyElixir.TrafficControl.AdapterTest do
 
                ## Focus
 
-               lib/symphony_elixir/traffic_control/adapter.ex
+               lib/sardine_run/traffic_control/adapter.ex
 
                ## Next step
 

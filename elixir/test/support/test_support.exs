@@ -1,4 +1,4 @@
-defmodule SymphonyElixir.TestSupport do
+defmodule SardineRun.TestSupport do
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -6,21 +6,21 @@ defmodule SymphonyElixir.TestSupport do
       use ExUnit.Case
       import ExUnit.CaptureLog
 
-      alias SymphonyElixir.AgentRunner
-      alias SymphonyElixir.CLI
-      alias SymphonyElixir.Codex.AppServer
-      alias SymphonyElixir.Config
-      alias SymphonyElixir.HttpServer
-      alias SymphonyElixir.Tracker.Issue
-      alias SymphonyElixir.Orchestrator
-      alias SymphonyElixir.PromptBuilder
-      alias SymphonyElixir.StatusDashboard
-      alias SymphonyElixir.Tracker
-      alias SymphonyElixir.Workflow
-      alias SymphonyElixir.WorkflowStore
-      alias SymphonyElixir.Workspace
+      alias SardineRun.AgentRunner
+      alias SardineRun.CLI
+      alias SardineRun.Codex.AppServer
+      alias SardineRun.Config
+      alias SardineRun.HttpServer
+      alias SardineRun.Tracker.Issue
+      alias SardineRun.Orchestrator
+      alias SardineRun.PromptBuilder
+      alias SardineRun.StatusDashboard
+      alias SardineRun.Tracker
+      alias SardineRun.Workflow
+      alias SardineRun.WorkflowStore
+      alias SardineRun.Workspace
 
-      import SymphonyElixir.TestSupport,
+      import SardineRun.TestSupport,
         only: [
           write_workflow_file!: 1,
           write_workflow_file!: 2,
@@ -35,21 +35,21 @@ defmodule SymphonyElixir.TestSupport do
         workflow_root =
           Path.join(
             System.tmp_dir!(),
-            "symphony-elixir-workflow-#{System.unique_integer([:positive])}"
+            "sardine-run-workflow-#{System.unique_integer([:positive])}"
           )
 
         File.mkdir_p!(workflow_root)
         workflow_file = Path.join(workflow_root, "WORKFLOW.md")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
-        if Process.whereis(SymphonyElixir.WorkflowStore), do: SymphonyElixir.WorkflowStore.force_reload()
+        if Process.whereis(SardineRun.WorkflowStore), do: SardineRun.WorkflowStore.force_reload()
         stop_default_http_server()
 
         on_exit(fn ->
-          Application.delete_env(:symphony_elixir, :workflow_file_path)
-          Application.delete_env(:symphony_elixir, :server_port_override)
-          Application.delete_env(:symphony_elixir, :memory_tracker_issues)
-          Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
+          Application.delete_env(:sardine_run, :workflow_file_path)
+          Application.delete_env(:sardine_run, :server_port_override)
+          Application.delete_env(:sardine_run, :memory_tracker_issues)
+          Application.delete_env(:sardine_run, :memory_tracker_recipient)
           File.rm_rf(workflow_root)
         end)
 
@@ -62,9 +62,9 @@ defmodule SymphonyElixir.TestSupport do
     workflow = workflow_content(overrides)
     File.write!(path, workflow)
 
-    if Process.whereis(SymphonyElixir.WorkflowStore) do
+    if Process.whereis(SardineRun.WorkflowStore) do
       try do
-        SymphonyElixir.WorkflowStore.force_reload()
+        SardineRun.WorkflowStore.force_reload()
       catch
         :exit, _reason -> :ok
       end
@@ -77,12 +77,12 @@ defmodule SymphonyElixir.TestSupport do
   def restore_env(key, value), do: System.put_env(key, value)
 
   def stop_default_http_server do
-    case Enum.find(Supervisor.which_children(SymphonyElixir.Supervisor), fn
-           {SymphonyElixir.HttpServer, _pid, _type, _modules} -> true
+    case Enum.find(Supervisor.which_children(SardineRun.Supervisor), fn
+           {SardineRun.HttpServer, _pid, _type, _modules} -> true
            _child -> false
          end) do
-      {SymphonyElixir.HttpServer, pid, _type, _modules} when is_pid(pid) ->
-        :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.HttpServer)
+      {SardineRun.HttpServer, pid, _type, _modules} when is_pid(pid) ->
+        :ok = Supervisor.terminate_child(SardineRun.Supervisor, SardineRun.HttpServer)
 
         if Process.alive?(pid) do
           Process.exit(pid, :normal)
@@ -138,7 +138,7 @@ defmodule SymphonyElixir.TestSupport do
           tracker_active_states: ["active"],
           tracker_terminal_states: ["done", "archived"],
           poll_interval_ms: 30_000,
-          workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
+          workspace_root: Path.join(System.tmp_dir!(), "sardine_run_workspaces"),
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,

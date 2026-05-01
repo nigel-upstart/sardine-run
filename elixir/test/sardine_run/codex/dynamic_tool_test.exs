@@ -1,7 +1,7 @@
-defmodule SymphonyElixir.Codex.DynamicToolTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.Codex.DynamicToolTest do
+  use SardineRun.TestSupport
 
-  alias SymphonyElixir.Codex.DynamicTool
+  alias SardineRun.Codex.DynamicTool
 
   setup do
     state_repo = make_state_repo!()

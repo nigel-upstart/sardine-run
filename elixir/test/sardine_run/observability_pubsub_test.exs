@@ -1,7 +1,7 @@
-defmodule SymphonyElixir.ObservabilityPubSubTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.ObservabilityPubSubTest do
+  use SardineRun.TestSupport
 
-  alias SymphonyElixirWeb.ObservabilityPubSub
+  alias SardineRunWeb.ObservabilityPubSub
 
   test "subscribe and broadcast_update deliver dashboard updates" do
     assert :ok = ObservabilityPubSub.subscribe()
@@ -13,15 +13,15 @@ defmodule SymphonyElixir.ObservabilityPubSubTest do
     pubsub_child_id = Phoenix.PubSub.Supervisor
 
     on_exit(fn ->
-      if Process.whereis(SymphonyElixir.PubSub) == nil do
+      if Process.whereis(SardineRun.PubSub) == nil do
         assert {:ok, _pid} =
-                 Supervisor.restart_child(SymphonyElixir.Supervisor, pubsub_child_id)
+                 Supervisor.restart_child(SardineRun.Supervisor, pubsub_child_id)
       end
     end)
 
-    assert is_pid(Process.whereis(SymphonyElixir.PubSub))
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, pubsub_child_id)
-    refute Process.whereis(SymphonyElixir.PubSub)
+    assert is_pid(Process.whereis(SardineRun.PubSub))
+    assert :ok = Supervisor.terminate_child(SardineRun.Supervisor, pubsub_child_id)
+    refute Process.whereis(SardineRun.PubSub)
 
     assert :ok = ObservabilityPubSub.broadcast_update()
   end

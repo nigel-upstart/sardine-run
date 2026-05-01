@@ -1,11 +1,11 @@
-defmodule SymphonyElixir.AppServerTest do
-  use SymphonyElixir.TestSupport
+defmodule SardineRun.AppServerTest do
+  use SardineRun.TestSupport
 
   test "app server rejects the workspace root and paths outside workspace root" do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-cwd-guard-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-cwd-guard-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -43,7 +43,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-symlink-cwd-guard-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-symlink-cwd-guard-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -80,7 +80,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-supported-turn-policies-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-supported-turn-policies-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -187,7 +187,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-input-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-input-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -266,7 +266,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-approval-required-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-approval-required-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -329,7 +329,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-auto-approve-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-auto-approve-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -440,7 +440,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-tool-user-input-auto-approve-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-tool-user-input-auto-approve-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -539,7 +539,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-tool-user-input-required-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-tool-user-input-required-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -615,7 +615,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-tool-user-input-options-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-tool-user-input-options-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -715,7 +715,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-tool-call-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-tool-call-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -816,7 +816,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-supported-tool-call-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-supported-tool-call-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -938,7 +938,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-tool-call-failed-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-tool-call-failed-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1044,7 +1044,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-partial-line-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-partial-line-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1108,7 +1108,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-stderr-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-stderr-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1183,7 +1183,7 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-malformed-protocol-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-malformed-protocol-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1254,15 +1254,15 @@ defmodule SymphonyElixir.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-app-server-remote-ssh-#{System.unique_integer([:positive])}"
+        "sardine-run-app-server-remote-ssh-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")
-    previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
+    previous_trace = System.get_env("SARDINE_RUN_TEST_SSH_TRACE")
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      restore_env("SYMP_TEST_SSH_TRACE", previous_trace)
+      restore_env("SARDINE_RUN_TEST_SSH_TRACE", previous_trace)
     end)
 
     try do
@@ -1271,12 +1271,12 @@ defmodule SymphonyElixir.AppServerTest do
       remote_workspace = "/remote/workspaces/MT-REMOTE"
 
       File.mkdir_p!(test_root)
-      System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
+      System.put_env("SARDINE_RUN_TEST_SSH_TRACE", trace_file)
       System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
 
       File.write!(fake_ssh, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/symphony-fake-ssh.trace}"
+      trace_file="${SARDINE_RUN_TEST_SSH_TRACE:-/tmp/sardine-run-fake-ssh.trace}"
       count=0
       printf 'ARGV:%s\\n' "$*" >> "$trace_file"
 
