@@ -11,6 +11,7 @@ defmodule SardineRun.TrafficControl.Adapter do
 
   alias SardineRun.Config
   alias SardineRun.Tracker.Issue
+  alias SardineRun.TrafficControl.SessionWriter
 
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -52,26 +53,13 @@ defmodule SardineRun.TrafficControl.Adapter do
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(session_id, body)
       when is_binary(session_id) and is_binary(body) do
-    with {:ok, repo} <- resolve_state_repo() do
-      notes_path = Path.join([repo, "sessions", session_id, "notes.md"])
-      File.mkdir_p!(Path.dirname(notes_path))
-
-      timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
-      entry = "\n\n## Sardine Run @ #{timestamp}\n\n#{body}\n"
-      File.write(notes_path, entry, [:append])
-    end
+    SessionWriter.append_note(session_id, body)
   end
 
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(session_id, state_name)
       when is_binary(session_id) and is_binary(state_name) do
-    with {:ok, repo} <- resolve_state_repo(),
-         session_path = Path.join([repo, "sessions", session_id, "session.yaml"]),
-         {:ok, raw} <- File.read(session_path),
-         {:ok, _parsed} <- decode_yaml(raw) do
-      replaced = patch_status(raw, normalize_state(state_name))
-      File.write(session_path, replaced)
-    end
+    SessionWriter.update_status(session_id, normalize_state(state_name), nil)
   end
 
   @doc false
@@ -174,14 +162,6 @@ defmodule SardineRun.TrafficControl.Adapter do
     case YamlElixir.read_from_string(raw) do
       {:ok, decoded} -> {:ok, decoded}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp patch_status(raw, status) do
-    if Regex.match?(~r/^status:\s.*/m, raw) do
-      Regex.replace(~r/^status:\s.*$/m, raw, "status: #{status}", global: false)
-    else
-      raw <> "\nstatus: #{status}\n"
     end
   end
 end

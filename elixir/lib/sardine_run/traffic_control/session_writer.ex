@@ -16,6 +16,8 @@ defmodule SardineRun.TrafficControl.SessionWriter do
 
   alias SardineRun.TrafficControl.Adapter
 
+  @session_id_pattern ~r/\A[A-Za-z0-9._-]+\z/
+
   @waiting_keys ~w(kind note requested_at since)
   @sardine_run_keys ~w(
     agent_id
@@ -37,7 +39,8 @@ defmodule SardineRun.TrafficControl.SessionWriter do
   @spec update_status(String.t(), String.t(), map() | nil) :: :ok | {:error, term()}
   def update_status(session_id, status, waiting)
       when is_binary(session_id) and is_binary(status) do
-    with {:ok, session_path} <- session_path(session_id),
+    with :ok <- validate_session_id(session_id),
+         {:ok, session_path} <- session_path(session_id),
          {:ok, raw} <- File.read(session_path),
          {:ok, parsed} <- decode_yaml(raw) do
       patched =
@@ -51,7 +54,8 @@ defmodule SardineRun.TrafficControl.SessionWriter do
 
   @spec update_heartbeat(String.t(), map()) :: :ok | {:error, term()}
   def update_heartbeat(session_id, runtime) when is_binary(session_id) and is_map(runtime) do
-    with {:ok, session_path} <- session_path(session_id),
+    with :ok <- validate_session_id(session_id),
+         {:ok, session_path} <- session_path(session_id),
          {:ok, raw} <- File.read(session_path),
          {:ok, parsed} <- decode_yaml(raw) do
       now = DateTime.utc_now() |> DateTime.to_iso8601()
@@ -75,43 +79,39 @@ defmodule SardineRun.TrafficControl.SessionWriter do
 
   @spec append_note(String.t(), String.t()) :: :ok | {:error, term()}
   def append_note(session_id, body) when is_binary(session_id) and is_binary(body) do
-    Adapter.create_comment(session_id, body)
+    with :ok <- validate_session_id(session_id),
+         {:ok, repo} <- Adapter.resolve_state_repo() do
+      notes_path = Path.join([repo, "sessions", session_id, "notes.md"])
+
+      with :ok <- File.mkdir_p(Path.dirname(notes_path)) do
+        timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+        entry = "\n\n## Sardine Run @ #{timestamp}\n\n#{body}\n"
+        File.write(notes_path, entry, [:append])
+      end
+    end
   end
 
   @spec append_link(String.t(), map()) :: :ok | {:error, term()}
   def append_link(session_id, %{"label" => label, "kind" => kind, "url" => url})
       when is_binary(session_id) and is_binary(label) and is_binary(kind) and is_binary(url) do
-    with {:ok, repo} <- Adapter.resolve_state_repo() do
+    with :ok <- validate_session_id(session_id),
+         {:ok, repo} <- Adapter.resolve_state_repo() do
       links_path = Path.join([repo, "sessions", session_id, "links.yaml"])
-      File.mkdir_p!(Path.dirname(links_path))
 
-      existing =
-        case File.read(links_path) do
-          {:ok, raw} ->
-            case YamlElixir.read_from_string(raw) do
-              {:ok, list} when is_list(list) -> list
-              _ -> []
-            end
-
-          {:error, :enoent} ->
-            []
-
-          {:error, reason} ->
-            throw({:read_error, reason})
-        end
-
-      new_entry = %{"label" => label, "kind" => kind, "url" => url}
-      updated = existing ++ [new_entry]
-      File.write(links_path, render_links_yaml(updated))
+      with :ok <- File.mkdir_p(Path.dirname(links_path)),
+           {:ok, existing} <- read_existing_links(links_path) do
+        new_entry = %{"label" => label, "kind" => kind, "url" => url}
+        updated = existing ++ [new_entry]
+        File.write(links_path, render_links_yaml(updated))
+      end
     end
-  catch
-    {:read_error, reason} -> {:error, reason}
   end
 
   @spec update_field(String.t(), String.t(), String.t() | nil) :: :ok | {:error, term()}
   def update_field(session_id, field, value)
       when is_binary(session_id) and field in ~w(focus next_step) do
-    with {:ok, session_path} <- session_path(session_id),
+    with :ok <- validate_session_id(session_id),
+         {:ok, session_path} <- session_path(session_id),
          {:ok, raw} <- File.read(session_path) do
       patched = patch_top_level(raw, field, value)
       File.write(session_path, patched)
@@ -121,6 +121,30 @@ defmodule SardineRun.TrafficControl.SessionWriter do
   defp session_path(session_id) do
     with {:ok, repo} <- Adapter.resolve_state_repo() do
       {:ok, Path.join([repo, "sessions", session_id, "session.yaml"])}
+    end
+  end
+
+  defp validate_session_id(session_id) do
+    if Regex.match?(@session_id_pattern, session_id) do
+      :ok
+    else
+      {:error, :invalid_session_id}
+    end
+  end
+
+  defp read_existing_links(links_path) do
+    case File.read(links_path) do
+      {:ok, raw} ->
+        case YamlElixir.read_from_string(raw) do
+          {:ok, list} when is_list(list) -> {:ok, list}
+          _ -> {:ok, []}
+        end
+
+      {:error, :enoent} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -209,15 +233,14 @@ defmodule SardineRun.TrafficControl.SessionWriter do
   # at end-of-file.
   defp find_block_range(raw, key) do
     lines = String.split(raw, "\n", trim: false)
-    walk_lines(lines, key, [], 0, length(lines))
+    walk_lines(lines, key, [])
   end
 
-  defp walk_lines([], _key, _acc_prefix, _idx, _total), do: :not_found
+  defp walk_lines([], _key, _acc_prefix), do: :not_found
 
-  defp walk_lines([line | rest], key, acc_prefix, idx, total) do
+  defp walk_lines([line | rest], key, acc_prefix) do
     if top_level_match?(line, key) do
-      {block_lines, after_lines} = take_block_continuation(rest, [])
-      _ = block_lines
+      {_block_lines, after_lines} = take_block_continuation(rest, [])
 
       prefix =
         case acc_prefix do
@@ -227,19 +250,13 @@ defmodule SardineRun.TrafficControl.SessionWriter do
 
       suffix =
         case after_lines do
-          [] ->
-            ""
-
-          _ ->
-            Enum.join(after_lines, "\n")
+          [] -> ""
+          _ -> Enum.join(after_lines, "\n")
         end
-
-      _ = idx
-      _ = total
 
       {:ok, prefix, suffix}
     else
-      walk_lines(rest, key, [line | acc_prefix], idx + 1, total)
+      walk_lines(rest, key, [line | acc_prefix])
     end
   end
 
