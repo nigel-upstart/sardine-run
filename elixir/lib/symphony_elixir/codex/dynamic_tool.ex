@@ -6,6 +6,8 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   its assigned Traffic Control session without writing files directly.
   """
 
+  alias SymphonyElixir.TrafficControl.SessionWriter
+
   @tool_name "sardine_run_session"
 
   @operations ~w(status heartbeat note link focus next_step)
@@ -126,14 +128,113 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   end
 
   defp handle_session_tool(args) do
-    with {:ok, _session_id} <- require_string(args, "session_id"),
-         {:ok, _operation} <- require_enum(args, "operation", @operations) do
-      validation_failure(%{
-        "message" => "sardine_run_session operations are not yet implemented."
-      })
+    with {:ok, session_id} <- require_string(args, "session_id"),
+         {:ok, operation} <- require_enum(args, "operation", @operations) do
+      dispatch(operation, session_id, args)
     else
       {:error, reason} -> validation_failure(reason)
     end
+  end
+
+  defp dispatch("status", session_id, args) do
+    case require_enum(args, "status", @statuses) do
+      {:ok, status} ->
+        waiting =
+          if status == "waiting" do
+            %{
+              "kind" => Map.get(args, "waiting_kind") || "other",
+              "note" => Map.get(args, "waiting_note")
+            }
+          else
+            nil
+          end
+
+        case SessionWriter.update_status(session_id, status, waiting) do
+          :ok -> success(%{"session_id" => session_id, "status" => status})
+          {:error, reason} -> writer_failure(reason)
+        end
+
+      {:error, reason} ->
+        validation_failure(reason)
+    end
+  end
+
+  defp dispatch("note", session_id, args) do
+    case require_string(args, "body") do
+      {:ok, body} ->
+        case SessionWriter.append_note(session_id, body) do
+          :ok -> success(%{"session_id" => session_id, "operation" => "note"})
+          {:error, reason} -> writer_failure(reason)
+        end
+
+      {:error, reason} ->
+        validation_failure(reason)
+    end
+  end
+
+  defp dispatch("link", session_id, args) do
+    with {:ok, label} <- require_string(args, "label"),
+         {:ok, kind} <- require_string(args, "link_kind"),
+         {:ok, url} <- require_string(args, "url") do
+      case SessionWriter.append_link(session_id, %{
+             "label" => label,
+             "kind" => kind,
+             "url" => url
+           }) do
+        :ok -> success(%{"session_id" => session_id, "operation" => "link"})
+        {:error, reason} -> writer_failure(reason)
+      end
+    else
+      {:error, reason} -> validation_failure(reason)
+    end
+  end
+
+  defp dispatch("focus", session_id, args) do
+    case SessionWriter.update_field(session_id, "focus", Map.get(args, "value")) do
+      :ok -> success(%{"session_id" => session_id, "operation" => "focus"})
+      {:error, reason} -> writer_failure(reason)
+    end
+  end
+
+  defp dispatch("next_step", session_id, args) do
+    case SessionWriter.update_field(session_id, "next_step", Map.get(args, "value")) do
+      :ok -> success(%{"session_id" => session_id, "operation" => "next_step"})
+      {:error, reason} -> writer_failure(reason)
+    end
+  end
+
+  defp dispatch(operation, _session_id, _args) do
+    validation_failure(%{
+      "field" => "operation",
+      "message" => "Operation #{inspect(operation)} is not yet implemented.",
+      "allowed" => @operations
+    })
+  end
+
+  defp writer_failure(reason) do
+    failure(%{
+      "error" => %{
+        "kind" => "writer_error",
+        "message" => format_writer_reason(reason)
+      }
+    })
+  end
+
+  defp format_writer_reason(:enoent), do: "session.yaml not found (enoent)."
+  defp format_writer_reason(:state_repo_not_configured), do: "tracker.state_repo is not configured."
+  defp format_writer_reason(reason) when is_binary(reason), do: reason
+  defp format_writer_reason(reason), do: inspect(reason)
+
+  defp success(payload) do
+    output = encode_payload(Map.put(payload, "success", true))
+
+    %{
+      "success" => true,
+      "output" => output,
+      "contentItems" => [
+        %{"type" => "inputText", "text" => output}
+      ]
+    }
   end
 
   defp require_string(args, key) do
