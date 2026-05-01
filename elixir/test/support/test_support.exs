@@ -11,8 +11,7 @@ defmodule SymphonyElixir.TestSupport do
       alias SymphonyElixir.Codex.AppServer
       alias SymphonyElixir.Config
       alias SymphonyElixir.HttpServer
-      alias SymphonyElixir.Linear.Client
-      alias SymphonyElixir.Linear.Issue
+      alias SymphonyElixir.Tracker.Issue
       alias SymphonyElixir.Orchestrator
       alias SymphonyElixir.PromptBuilder
       alias SymphonyElixir.StatusDashboard
@@ -22,7 +21,15 @@ defmodule SymphonyElixir.TestSupport do
       alias SymphonyElixir.Workspace
 
       import SymphonyElixir.TestSupport,
-        only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
+        only: [
+          write_workflow_file!: 1,
+          write_workflow_file!: 2,
+          restore_env: 2,
+          stop_default_http_server: 0,
+          make_state_repo!: 0,
+          make_state_repo!: 1,
+          write_session_yaml!: 3
+        ]
 
       setup do
         workflow_root =
@@ -88,17 +95,48 @@ defmodule SymphonyElixir.TestSupport do
     end
   end
 
+  @doc """
+  Create a temporary traffic-control state repo with a `sessions/` directory.
+  Returns the absolute path to the repo. Caller is responsible for cleanup
+  (use `on_exit/1` with `File.rm_rf!/1`).
+  """
+  def make_state_repo!(prefix \\ "tc-state") do
+    repo =
+      Path.join(
+        System.tmp_dir!(),
+        "#{prefix}-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(Path.join(repo, "sessions"))
+    repo
+  end
+
+  @doc """
+  Write a `session.yaml` file under `<repo>/sessions/<id>/session.yaml` from
+  the supplied flat map of fields. Returns the absolute path written.
+  """
+  def write_session_yaml!(repo, session_id, fields) do
+    dir = Path.join([repo, "sessions", session_id])
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "session.yaml")
+    File.write!(path, render_session_yaml(fields))
+    path
+  end
+
+  defp render_session_yaml(fields) do
+    fields
+    |> Enum.map_join("\n", fn {key, value} -> "#{to_string(key)}: #{yaml_value(value)}" end)
+    |> Kernel.<>("\n")
+  end
+
   defp workflow_content(overrides) do
     config =
       Keyword.merge(
         [
-          tracker_kind: "linear",
-          tracker_endpoint: "https://api.linear.app/graphql",
-          tracker_api_token: "token",
-          tracker_project_slug: "project",
-          tracker_assignee: nil,
-          tracker_active_states: ["Todo", "In Progress"],
-          tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+          tracker_kind: "traffic_control",
+          tracker_state_repo: Path.join(System.tmp_dir!(), "traffic-control-state"),
+          tracker_active_states: ["active"],
+          tracker_terminal_states: ["done", "archived"],
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
           worker_ssh_hosts: [],
@@ -130,10 +168,7 @@ defmodule SymphonyElixir.TestSupport do
       )
 
     tracker_kind = Keyword.get(config, :tracker_kind)
-    tracker_endpoint = Keyword.get(config, :tracker_endpoint)
-    tracker_api_token = Keyword.get(config, :tracker_api_token)
-    tracker_project_slug = Keyword.get(config, :tracker_project_slug)
-    tracker_assignee = Keyword.get(config, :tracker_assignee)
+    tracker_state_repo = Keyword.get(config, :tracker_state_repo)
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
@@ -168,10 +203,7 @@ defmodule SymphonyElixir.TestSupport do
         "---",
         "tracker:",
         "  kind: #{yaml_value(tracker_kind)}",
-        "  endpoint: #{yaml_value(tracker_endpoint)}",
-        "  api_key: #{yaml_value(tracker_api_token)}",
-        "  project_slug: #{yaml_value(tracker_project_slug)}",
-        "  assignee: #{yaml_value(tracker_assignee)}",
+        "  state_repo: #{yaml_value(tracker_state_repo)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "polling:",

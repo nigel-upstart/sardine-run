@@ -46,12 +46,9 @@ defmodule SymphonyElixir.Config.Schema do
 
     embedded_schema do
       field(:kind, :string)
-      field(:endpoint, :string, default: "https://api.linear.app/graphql")
-      field(:api_key, :string)
-      field(:project_slug, :string)
-      field(:assignee, :string)
-      field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
-      field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
+      field(:state_repo, :string)
+      field(:active_states, {:array, :string}, default: ["active"])
+      field(:terminal_states, {:array, :string}, default: ["done", "archived"])
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -59,7 +56,7 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(
         attrs,
-        [:kind, :endpoint, :api_key, :project_slug, :assignee, :active_states, :terminal_states],
+        [:kind, :state_repo, :active_states, :terminal_states],
         empty_values: []
       )
     end
@@ -368,8 +365,8 @@ defmodule SymphonyElixir.Config.Schema do
   defp finalize_settings(settings) do
     tracker = %{
       settings.tracker
-      | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
-        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+      | state_repo:
+          resolve_path_value(settings.tracker.state_repo, System.get_env("TRAFFIC_CONTROL_STATE_REPO"))
     }
 
     workspace = %{
@@ -413,15 +410,6 @@ defmodule SymphonyElixir.Config.Schema do
   defp drop_nil_values(value) when is_list(value), do: Enum.map(value, &drop_nil_values/1)
   defp drop_nil_values(value), do: value
 
-  defp resolve_secret_setting(nil, fallback), do: normalize_secret_value(fallback)
-
-  defp resolve_secret_setting(value, fallback) when is_binary(value) do
-    case resolve_env_value(value, fallback) do
-      resolved when is_binary(resolved) -> normalize_secret_value(resolved)
-      resolved -> resolved
-    end
-  end
-
   defp resolve_path_value(value, default) when is_binary(value) do
     case normalize_path_token(value) do
       :missing ->
@@ -435,19 +423,7 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
-  defp resolve_env_value(value, fallback) when is_binary(value) do
-    case env_reference_name(value) do
-      {:ok, env_name} ->
-        case System.get_env(env_name) do
-          nil -> fallback
-          "" -> nil
-          env_value -> env_value
-        end
-
-      :error ->
-        value
-    end
-  end
+  defp resolve_path_value(nil, default), do: default
 
   defp normalize_path_token(value) when is_binary(value) do
     case env_reference_name(value) do
@@ -472,12 +448,6 @@ defmodule SymphonyElixir.Config.Schema do
       env_value -> env_value
     end
   end
-
-  defp normalize_secret_value(value) when is_binary(value) do
-    if value == "", do: nil, else: value
-  end
-
-  defp normalize_secret_value(_value), do: nil
 
   defp default_turn_sandbox_policy(workspace) do
     %{

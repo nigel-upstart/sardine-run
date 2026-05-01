@@ -40,7 +40,7 @@ defmodule SymphonyElixir.Tracker do
   def adapter do
     case Config.settings!().tracker.kind do
       "memory" -> SymphonyElixir.Tracker.Memory
-      _ -> SymphonyElixir.Linear.Adapter
+      _ -> SymphonyElixir.TrafficControl.Adapter
     end
   end
 end
