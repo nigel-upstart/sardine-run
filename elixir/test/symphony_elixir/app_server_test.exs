@@ -801,7 +801,7 @@ defmodule SymphonyElixir.AppServerTest do
                    get_in(payload, ["result", "success"]) == false and
                    String.contains?(
                      get_in(payload, ["result", "output"]),
-                     "No dynamic tools are currently advertised"
+                     "Unknown tool"
                    )
                else
                  false
