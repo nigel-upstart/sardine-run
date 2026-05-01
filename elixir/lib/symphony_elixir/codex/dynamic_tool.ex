@@ -159,6 +159,25 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     end
   end
 
+  defp dispatch("heartbeat", session_id, args) do
+    runtime =
+      %{
+        "last_event" => Map.get(args, "last_event"),
+        "last_message" => Map.get(args, "last_message"),
+        "last_error" => Map.get(args, "last_error"),
+        "input_tokens" => Map.get(args, "input_tokens"),
+        "output_tokens" => Map.get(args, "output_tokens"),
+        "total_tokens" => Map.get(args, "total_tokens")
+      }
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.new()
+
+    case SessionWriter.update_heartbeat(session_id, runtime) do
+      :ok -> success(%{"session_id" => session_id, "operation" => "heartbeat"})
+      {:error, reason} -> writer_failure(reason)
+    end
+  end
+
   defp dispatch("note", session_id, args) do
     case require_string(args, "body") do
       {:ok, body} ->
@@ -206,35 +225,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   defp dispatch(operation, _session_id, _args) do
     validation_failure(%{
       "field" => "operation",
-      "message" => "Operation #{inspect(operation)} is not yet implemented.",
+      "message" => "Unknown operation #{inspect(operation)}.",
       "allowed" => @operations
     })
-  end
-
-  defp writer_failure(reason) do
-    failure(%{
-      "error" => %{
-        "kind" => "writer_error",
-        "message" => format_writer_reason(reason)
-      }
-    })
-  end
-
-  defp format_writer_reason(:enoent), do: "session.yaml not found (enoent)."
-  defp format_writer_reason(:state_repo_not_configured), do: "tracker.state_repo is not configured."
-  defp format_writer_reason(reason) when is_binary(reason), do: reason
-  defp format_writer_reason(reason), do: inspect(reason)
-
-  defp success(payload) do
-    output = encode_payload(Map.put(payload, "success", true))
-
-    %{
-      "success" => true,
-      "output" => output,
-      "contentItems" => [
-        %{"type" => "inputText", "text" => output}
-      ]
-    }
   end
 
   defp require_string(args, key) do
@@ -268,6 +261,32 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   defp validation_failure(reason) do
     failure(%{"error" => Map.put(reason, "kind", "invalid_arguments")})
+  end
+
+  defp writer_failure(reason) do
+    failure(%{
+      "error" => %{
+        "kind" => "writer_error",
+        "message" => format_writer_reason(reason)
+      }
+    })
+  end
+
+  defp format_writer_reason(:enoent), do: "session.yaml not found (enoent)."
+  defp format_writer_reason(:state_repo_not_configured), do: "tracker.state_repo is not configured."
+  defp format_writer_reason(reason) when is_binary(reason), do: reason
+  defp format_writer_reason(reason), do: inspect(reason)
+
+  defp success(payload) do
+    output = encode_payload(Map.put(payload, "success", true))
+
+    %{
+      "success" => true,
+      "output" => output,
+      "contentItems" => [
+        %{"type" => "inputText", "text" => output}
+      ]
+    }
   end
 
   defp failure(payload) do

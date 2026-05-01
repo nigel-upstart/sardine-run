@@ -161,6 +161,40 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     end
   end
 
+  describe "execute/3 heartbeat operation" do
+    test "patches sardine_run runtime fields and timestamps", %{state_repo: state_repo} do
+      path =
+        write_session_yaml!(state_repo, "abc",
+          id: "abc",
+          title: "T",
+          status: "active"
+        )
+
+      assert %{"success" => true} =
+               DynamicTool.execute("sardine_run_session", %{
+                 "operation" => "heartbeat",
+                 "session_id" => "abc",
+                 "last_event" => "turn-completed",
+                 "last_message" => "wrote tests",
+                 "input_tokens" => 1234,
+                 "output_tokens" => 567,
+                 "total_tokens" => 1801
+               })
+
+      raw = File.read!(path)
+      {:ok, parsed} = YamlElixir.read_from_string(raw)
+      sr = parsed["sardine_run"]
+      assert is_map(sr)
+      assert sr["last_event"] == "turn-completed"
+      assert sr["last_message"] == "wrote tests"
+      assert sr["input_tokens"] == 1234
+      assert sr["output_tokens"] == 567
+      assert sr["total_tokens"] == 1801
+      assert is_binary(sr["last_heartbeat"])
+      assert sr["last_heartbeat"] =~ ~r/^\d{4}-\d{2}-\d{2}T/
+    end
+  end
+
   describe "execute/3 note operation" do
     test "appends a note to notes.md", %{state_repo: state_repo} do
       _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "active")
