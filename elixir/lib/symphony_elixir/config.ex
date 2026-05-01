@@ -18,6 +18,22 @@ defmodule SymphonyElixir.Config do
   {% else %}
   No description provided.
   {% endif %}
+
+  You have a `sardine_run_session` dynamic tool available. Use it to keep
+  the Traffic Control session in sync with your work:
+
+  - `operation: status` to move the session through active/blocked/waiting/review/done.
+    When `status: waiting`, also set `waiting_kind` (human/ci/review/external/other)
+    and an optional `waiting_note`.
+  - `operation: heartbeat` periodically with `last_event`, `last_message`, and any
+    token counters so observers can see progress.
+  - `operation: note` with `body` to append an update to `notes.md`.
+  - `operation: link` with `label`, `link_kind`, and `url` to record a PR, Slack
+    thread, doc, or related resource.
+  - `operation: focus` and `operation: next_step` with `value` to update the
+    session's current focus and intended next step (empty string clears the field).
+
+  Always pass the assigned `session_id` ({{ issue.identifier }}) when calling the tool.
   """
 
   @type codex_runtime_settings :: %{
