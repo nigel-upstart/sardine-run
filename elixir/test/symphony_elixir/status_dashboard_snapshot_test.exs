@@ -4,6 +4,12 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
   alias SymphonyElixir.TestSupport.Snapshot
 
   @terminal_columns 115
+  @stable_state_repo "/tmp/traffic-control-state"
+
+  setup do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_state_repo: @stable_state_repo)
+    :ok
+  end
 
   test "snapshot fixture: idle dashboard" do
     snapshot_data =
