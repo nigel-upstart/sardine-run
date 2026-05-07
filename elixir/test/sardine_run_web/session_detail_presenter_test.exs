@@ -424,6 +424,143 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
     end
   end
 
+  describe "payload/3 — notes.md section" do
+    setup do
+      tmp_root =
+        Path.join(
+          System.tmp_dir!(),
+          "sr-presenter-notes-#{System.unique_integer([:positive])}"
+        )
+
+      state_repo = Path.join(tmp_root, "state")
+      session_dir = Path.join([state_repo, "sessions", "UPS-NOTES"])
+      File.mkdir_p!(session_dir)
+      on_exit(fn -> File.rm_rf!(tmp_root) end)
+
+      {:ok, state_repo: state_repo, session_dir: session_dir}
+    end
+
+    test "returns :ok with content when notes.md exists", %{
+      state_repo: state_repo,
+      session_dir: session_dir
+    } do
+      File.write!(Path.join(session_dir, "notes.md"), "hello world\n")
+
+      snapshot = notes_running_snapshot("UPS-NOTES")
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-NOTES", snapshot, %{state_repo: state_repo})
+
+      assert payload.notes.status == :ok
+      assert payload.notes.content == "hello world\n"
+    end
+
+    test "returns :missing when notes.md does not exist", %{state_repo: state_repo} do
+      snapshot = notes_running_snapshot("UPS-NOTES")
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-NOTES", snapshot, %{state_repo: state_repo})
+
+      assert payload.notes.status == :missing
+      assert payload.notes.content == nil
+    end
+
+    test "returns :memory_tracker when state_repo is not in filesystem" do
+      snapshot = notes_running_snapshot("UPS-NOTES")
+
+      assert {:ok, payload} = SessionDetailPresenter.payload("UPS-NOTES", snapshot, %{})
+
+      assert payload.notes.status == :memory_tracker
+      assert payload.notes.content == nil
+    end
+
+    defp notes_running_snapshot(identifier) do
+      now = DateTime.utc_now()
+
+      %{
+        running: [
+          %{
+            issue_id: "id-#{identifier}",
+            identifier: identifier,
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: "/tmp/ws/#{identifier}",
+            session_id: "sess-#{identifier}",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 0,
+            started_at: DateTime.add(now, -10, :second),
+            last_codex_timestamp: now,
+            last_codex_message: nil,
+            last_codex_event: nil,
+            runtime_seconds: 10
+          }
+        ],
+        retrying: []
+      }
+    end
+  end
+
+  describe "payload/3 — on-disk paths section" do
+    test "returns the four paths when state_repo is configured" do
+      state_repo = "/fake/state-repo"
+      workspace = "/fake/ws/UPS-PATHS"
+      snapshot = paths_running_snapshot("UPS-PATHS", workspace)
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload(
+                 "UPS-PATHS",
+                 snapshot,
+                 %{state_repo: state_repo}
+               )
+
+      assert payload.paths != :hidden
+      assert payload.paths.session_yaml == "/fake/state-repo/sessions/UPS-PATHS/session.yaml"
+      assert payload.paths.notes_md == "/fake/state-repo/sessions/UPS-PATHS/notes.md"
+      assert payload.paths.links_yaml == "/fake/state-repo/sessions/UPS-PATHS/links.yaml"
+      assert payload.paths.workspace == workspace
+    end
+
+    test "returns :hidden when state_repo is not configured" do
+      workspace = "/fake/ws/UPS-PATHS"
+      snapshot = paths_running_snapshot("UPS-PATHS", workspace)
+
+      assert {:ok, payload} = SessionDetailPresenter.payload("UPS-PATHS", snapshot, %{})
+
+      assert payload.paths == :hidden
+    end
+
+    defp paths_running_snapshot(identifier, workspace) do
+      now = DateTime.utc_now()
+
+      %{
+        running: [
+          %{
+            issue_id: "id-#{identifier}",
+            identifier: identifier,
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: workspace,
+            session_id: "sess-#{identifier}",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 0,
+            started_at: DateTime.add(now, -10, :second),
+            last_codex_timestamp: now,
+            last_codex_message: nil,
+            last_codex_event: nil,
+            runtime_seconds: 10
+          }
+        ],
+        retrying: []
+      }
+    end
+  end
+
   describe "payload/3 — running takes precedence over retrying" do
     test "if the identifier appears in both running and retrying, status is running" do
       now = DateTime.utc_now()

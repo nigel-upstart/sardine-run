@@ -200,6 +200,54 @@ defmodule SardineRunWeb.SessionDetailLive do
                 <p class="empty-state">No log entries.</p>
             <% end %>
           </section>
+
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Session notes</h2>
+                <p class="section-copy">Contents of <code>notes.md</code> in the Traffic Control state repo.</p>
+              </div>
+            </div>
+
+            <%= case payload.notes.status do %>
+              <% :ok -> %>
+                <pre class="code-panel"><%= payload.notes.content %></pre>
+              <% :missing -> %>
+                <p class="empty-state">No notes.</p>
+              <% :memory_tracker -> %>
+                <p class="empty-state">Notes unavailable in memory tracker mode.</p>
+            <% end %>
+          </section>
+
+          <%= if payload.paths != :hidden do %>
+            <section class="section-card">
+              <div class="section-header">
+                <div>
+                  <h2 class="section-title">On-disk paths</h2>
+                  <p class="section-copy">Absolute paths for this session's files on the worker host.</p>
+                </div>
+              </div>
+
+              <dl class="metric-grid">
+                <div class="metric-card">
+                  <dt class="metric-label">session.yaml</dt>
+                  <dd class="metric-value mono"><%= payload.paths.session_yaml %></dd>
+                </div>
+                <div class="metric-card">
+                  <dt class="metric-label">notes.md</dt>
+                  <dd class="metric-value mono"><%= payload.paths.notes_md %></dd>
+                </div>
+                <div class="metric-card">
+                  <dt class="metric-label">links.yaml</dt>
+                  <dd class="metric-value mono"><%= payload.paths.links_yaml %></dd>
+                </div>
+                <div class="metric-card">
+                  <dt class="metric-label">Workspace</dt>
+                  <dd class="metric-value mono"><%= payload.paths.workspace || "n/a" %></dd>
+                </div>
+              </dl>
+            </section>
+          <% end %>
         </section>
     <% end %>
     """
@@ -215,9 +263,16 @@ defmodule SardineRunWeb.SessionDetailLive do
   defp filesystem_context do
     case SardineRun.Config.settings() do
       {:ok, settings} ->
+        state_repo =
+          case SardineRun.TrafficControl.Adapter.resolve_state_repo() do
+            {:ok, repo} -> repo
+            _ -> nil
+          end
+
         %{
           workspace_root: settings.workspace.root,
-          log_file: SardineRun.LogFile.default_log_file()
+          log_file: SardineRun.LogFile.default_log_file(),
+          state_repo: state_repo
         }
 
       _ ->

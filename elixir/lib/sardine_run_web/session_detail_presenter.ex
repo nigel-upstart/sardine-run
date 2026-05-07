@@ -36,13 +36,21 @@ defmodule SardineRunWeb.SessionDetailPresenter do
 
   @type log_tail_section :: %{status: log_tail_status(), lines: [String.t()]}
 
+  @type notes_status :: :ok | :missing | :memory_tracker
+
+  @type notes_section :: %{status: notes_status(), content: String.t() | nil}
+
+  @type paths_section :: :hidden | %{session_yaml: Path.t(), notes_md: Path.t(), links_yaml: Path.t(), workspace: Path.t() | nil}
+
   @type payload :: %{
           identifier: session_identifier(),
           status: String.t(),
           header: map(),
           live_state: map(),
           git_log: git_log_section(),
-          log_tail: log_tail_section()
+          log_tail: log_tail_section(),
+          notes: notes_section(),
+          paths: paths_section()
         }
 
   @doc """
@@ -113,6 +121,7 @@ defmodule SardineRunWeb.SessionDetailPresenter do
     workspace_path = from_first(:workspace_path, running, retry)
     workspace_root = Map.get(filesystem, :workspace_root)
     log_file = Map.get(filesystem, :log_file)
+    state_repo = Map.get(filesystem, :state_repo)
 
     %{
       identifier: identifier,
@@ -120,7 +129,9 @@ defmodule SardineRunWeb.SessionDetailPresenter do
       header: header(identifier, running, retry),
       live_state: live_state(running, retry),
       git_log: git_log_section(workspace_path, workspace_root),
-      log_tail: log_tail_section(identifier, log_file)
+      log_tail: log_tail_section(identifier, log_file),
+      notes: notes_section(identifier, state_repo),
+      paths: paths_section(identifier, state_repo, workspace_path)
     }
   end
 
@@ -242,6 +253,46 @@ defmodule SardineRunWeb.SessionDetailPresenter do
       _other ->
         %{status: :error, lines: []}
     end
+  end
+
+  @doc """
+  Read `sessions/<identifier>/notes.md` from the Traffic Control state repo.
+
+  - `:ok` with the file content when the file exists.
+  - `:missing` when the file does not exist.
+  - `:memory_tracker` when `state_repo` is nil (memory tracker mode).
+  """
+  @spec notes_section(session_identifier(), Path.t() | nil) :: notes_section()
+  def notes_section(_identifier, nil), do: %{status: :memory_tracker, content: nil}
+
+  def notes_section(identifier, state_repo) when is_binary(state_repo) do
+    notes_path = Path.join([state_repo, "sessions", identifier, "notes.md"])
+
+    case File.read(notes_path) do
+      {:ok, content} -> %{status: :ok, content: content}
+      {:error, :enoent} -> %{status: :missing, content: nil}
+      {:error, _reason} -> %{status: :missing, content: nil}
+    end
+  end
+
+  @doc """
+  Build the on-disk paths block for a session.
+
+  Returns `:hidden` when `state_repo` is nil (memory tracker mode).
+  Otherwise returns a map with the four canonical paths.
+  """
+  @spec paths_section(session_identifier(), Path.t() | nil, Path.t() | nil) :: paths_section()
+  def paths_section(_identifier, nil, _workspace_path), do: :hidden
+
+  def paths_section(identifier, state_repo, workspace_path) when is_binary(state_repo) do
+    session_dir = Path.join([state_repo, "sessions", identifier])
+
+    %{
+      session_yaml: Path.join(session_dir, "session.yaml"),
+      notes_md: Path.join(session_dir, "notes.md"),
+      links_yaml: Path.join(session_dir, "links.yaml"),
+      workspace: workspace_path
+    }
   end
 
   defp status(running, _retry) when is_map(running), do: "running"

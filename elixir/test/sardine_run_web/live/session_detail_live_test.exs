@@ -216,6 +216,41 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
       assert html =~ "Recent log entries"
     end
 
+    test "renders session notes and on-disk paths sections for a running session" do
+      now = DateTime.utc_now()
+
+      snapshot = %{
+        running: [
+          %{
+            issue_id: "id-notes",
+            identifier: "UPS-NOTES",
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: nil,
+            session_id: "thread-notes",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 0,
+            started_at: DateTime.add(now, -1, :second),
+            last_codex_timestamp: now,
+            last_codex_message: nil,
+            last_codex_event: nil,
+            runtime_seconds: 1
+          }
+        ],
+        retrying: []
+      }
+
+      orchestrator_name = start_static_orchestrator!(snapshot)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+      {:ok, _view, html} = live(build_conn(), "/session/UPS-NOTES")
+
+      assert html =~ "Session notes"
+    end
+
     test "re-renders when an :observability_updated broadcast fires" do
       snapshot_v1 = build_running_snapshot("UPS-PUBSUB", "first message")
 
