@@ -1007,6 +1007,13 @@ API design notes:
 - Unsupported methods SHOULD return `405`.
 - Errors use `{"error":{"code":"...","message":"..."}}`.
 
+#### 13.7.3 Session Detail View (`/session/<issue_identifier>`)
+
+A per-session drill-down page SHOULD surface live agent state (turn count, last event, tokens,
+runtime), workspace git history, the tail of the session's log lines, notes.md contents, and
+on-disk file paths (session.yaml, notes.md, links.yaml, workspace path). Returns `404` if the
+`issue_identifier` is not in the current snapshot. Does not mutate session state.
+
 ## 14. Failure Model and Recovery Strategy
 
 ### 14.1 Failure Classes

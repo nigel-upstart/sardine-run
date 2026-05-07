@@ -183,7 +183,8 @@ The implementation lives in `lib/sardine_run/codex/dynamic_tool.ex` and writes t
 
 When `--port` (or `server.port`) is set, Sardine Run runs:
 
-- LiveView dashboard at `/` (suggested: `http://localhost:4000`)
+- LiveView dashboard at `/` (suggested: `http://localhost:4000`) listing active and retrying sessions
+- Per-session drill-down at `/session/<issue_identifier>` with live agent state, workspace git log, filtered logs, notes, and on-disk paths
 - JSON API under `/api/v1/*`
 - Bandit as the HTTP server
 
