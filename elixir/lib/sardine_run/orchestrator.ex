@@ -7,7 +7,7 @@ defmodule SardineRun.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SardineRun.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
+  alias SardineRun.{AgentRunner, Config, HttpServer, StatusDashboard, Tracker, Workspace}
   alias SardineRun.AgentRunner.WorkspaceHookFailedError
   alias SardineRun.Tracker.Issue
   alias SardineRun.TrafficControl.SessionWriter
@@ -184,6 +184,7 @@ defmodule SardineRun.Orchestrator do
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
+        clear_session_dashboard_url(issue_id, running_entry.identifier)
         notify_dashboard()
         {:noreply, state}
     end
@@ -787,6 +788,8 @@ defmodule SardineRun.Orchestrator do
             retry_attempt: normalize_retry_attempt(attempt),
             started_at: DateTime.utc_now()
           })
+
+        write_session_dashboard_url(issue.id, issue.identifier)
 
         %{
           state
@@ -1831,4 +1834,71 @@ defmodule SardineRun.Orchestrator do
   end
 
   defp integer_like(_value), do: nil
+
+  # ---- dashboard URL helpers -----------------------------------------------
+
+  defp session_dashboard_url(issue_identifier) do
+    host = Config.settings!().server.host
+    port = Config.server_port()
+    bound_port = HttpServer.bound_port()
+
+    case build_base_dashboard_url(host, port, bound_port) do
+      nil -> nil
+      base -> base <> "session/" <> issue_identifier
+    end
+  end
+
+  defp build_base_dashboard_url(_host, nil, _bound_port), do: nil
+
+  defp build_base_dashboard_url(host, configured_port, bound_port) do
+    port = bound_port || configured_port
+
+    if is_integer(port) and port > 0 do
+      "http://#{dashboard_url_host(host)}:#{port}/"
+    else
+      nil
+    end
+  end
+
+  defp dashboard_url_host(host) when host in ["0.0.0.0", "::", "[::]", ""], do: "127.0.0.1"
+
+  defp dashboard_url_host(host) when is_binary(host) do
+    trimmed = String.trim(host)
+
+    cond do
+      trimmed in ["0.0.0.0", "::", "[::]", ""] ->
+        "127.0.0.1"
+
+      String.starts_with?(trimmed, "[") and String.ends_with?(trimmed, "]") ->
+        trimmed
+
+      String.contains?(trimmed, ":") ->
+        "[#{trimmed}]"
+
+      true ->
+        trimmed
+    end
+  end
+
+  defp write_session_dashboard_url(issue_id, issue_identifier) do
+    url = session_dashboard_url(issue_identifier)
+
+    case SessionWriter.update_runtime(issue_id, %{dashboard_url: url}) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Could not write dashboard_url for issue_id=#{issue_id}: #{inspect(reason)}")
+    end
+  end
+
+  defp clear_session_dashboard_url(issue_id, issue_identifier) do
+    case SessionWriter.update_runtime(issue_id, %{dashboard_url: nil}) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Could not clear dashboard_url for issue_id=#{issue_id} issue_identifier=#{issue_identifier}: #{inspect(reason)}")
+    end
+  end
 end

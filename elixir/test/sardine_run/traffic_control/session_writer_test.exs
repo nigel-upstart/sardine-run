@@ -193,6 +193,54 @@ defmodule SardineRun.TrafficControl.SessionWriterTest do
     end
   end
 
+  describe "update_runtime/2" do
+    test "writes dashboard_url into sardine_run block", %{state_repo: repo} do
+      write_session_yaml!(repo, "r1", id: "r1", status: "active")
+
+      assert :ok =
+               SessionWriter.update_runtime("r1", %{dashboard_url: "http://127.0.0.1:4000/session/r1"})
+
+      parsed = read_yaml!(session_path(repo, "r1"))
+      assert parsed["sardine_run"]["dashboard_url"] == "http://127.0.0.1:4000/session/r1"
+    end
+
+    test "clears dashboard_url to null without clobbering other sardine_run fields", %{state_repo: repo} do
+      write_session_yaml!(repo, "r2", id: "r2", status: "active")
+
+      assert :ok =
+               SessionWriter.update_heartbeat("r2", %{
+                 "agent_id" => "worker-1",
+                 "run_id" => "run-abc"
+               })
+
+      assert :ok = SessionWriter.update_runtime("r2", %{dashboard_url: nil})
+
+      parsed = read_yaml!(session_path(repo, "r2"))
+      assert parsed["sardine_run"]["agent_id"] == "worker-1"
+      assert parsed["sardine_run"]["run_id"] == "run-abc"
+      assert parsed["sardine_run"]["dashboard_url"] == nil
+    end
+
+    test "creates sardine_run block when absent", %{state_repo: repo} do
+      File.mkdir_p!(Path.dirname(session_path(repo, "r3")))
+      File.write!(session_path(repo, "r3"), "id: r3\nstatus: active\n")
+
+      assert :ok =
+               SessionWriter.update_runtime("r3", %{dashboard_url: "http://127.0.0.1:4000/session/r3"})
+
+      parsed = read_yaml!(session_path(repo, "r3"))
+      assert parsed["sardine_run"]["dashboard_url"] == "http://127.0.0.1:4000/session/r3"
+    end
+
+    test "rejects malformed session_id", %{state_repo: _repo} do
+      assert {:error, :invalid_session_id} =
+               SessionWriter.update_runtime("../escape", %{dashboard_url: "http://example.com"})
+
+      assert {:error, :invalid_session_id} =
+               SessionWriter.update_runtime("bad id", %{dashboard_url: nil})
+    end
+  end
+
   describe "append_link/2" do
     test "creates links.yaml on first call and appends on subsequent calls", %{state_repo: repo} do
       assert :ok =

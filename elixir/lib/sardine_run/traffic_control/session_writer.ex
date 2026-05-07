@@ -34,6 +34,7 @@ defmodule SardineRun.TrafficControl.SessionWriter do
     input_tokens
     output_tokens
     total_tokens
+    dashboard_url
   )
 
   @spec update_status(String.t(), String.t(), map() | nil) :: :ok | {:error, term()}
@@ -118,6 +119,27 @@ defmodule SardineRun.TrafficControl.SessionWriter do
     end
   end
 
+  @doc """
+  Atomically merges the given runtime fields into the `sardine_run:` block of
+  `session.yaml`. Only keys in the allowed list are written; unknown keys are
+  ignored. Nil values are rendered as YAML `null` (explicitly clearing the
+  field), unlike `update_heartbeat/2` which omits nil-valued keys.
+
+  Currently supported keys: `dashboard_url`.
+  """
+  @spec update_runtime(String.t(), %{dashboard_url: String.t() | nil}) ::
+          :ok | {:error, term()}
+  def update_runtime(session_id, %{dashboard_url: url})
+      when is_binary(session_id) and (is_binary(url) or is_nil(url)) do
+    with :ok <- validate_session_id(session_id),
+         {:ok, session_path} <- session_path(session_id),
+         {:ok, raw} <- File.read(session_path),
+         {:ok, parsed} <- decode_yaml(raw) do
+      patched = patch_sardine_run_runtime(raw, parsed, %{"dashboard_url" => url})
+      File.write(session_path, patched)
+    end
+  end
+
   defp session_path(session_id) do
     with {:ok, repo} <- Adapter.resolve_state_repo() do
       {:ok, Path.join([repo, "sessions", session_id, "session.yaml"])}
@@ -197,6 +219,22 @@ defmodule SardineRun.TrafficControl.SessionWriter do
       |> Map.merge(stringify_runtime_values(runtime))
 
     rendered = render_block("sardine_run", merged, @sardine_run_keys)
+    replace_block(raw, "sardine_run", rendered)
+  end
+
+  # Like patch_sardine_run_block/3 but renders nil values as YAML `null` for
+  # keys explicitly present in the incoming `updates` map. Used by
+  # update_runtime/2 to allow fields to be cleared.
+  defp patch_sardine_run_runtime(raw, parsed, updates) do
+    existing = Map.get(parsed, "sardine_run") || %{}
+
+    merged =
+      existing
+      |> coerce_map()
+      |> Map.merge(stringify_runtime_values(updates))
+
+    explicit_null_keys = updates |> Map.filter(fn {_k, v} -> is_nil(v) end) |> Map.keys()
+    rendered = render_block_with_explicit_nulls("sardine_run", merged, @sardine_run_keys, explicit_null_keys)
     replace_block(raw, "sardine_run", rendered)
   end
 
@@ -320,6 +358,34 @@ defmodule SardineRun.TrafficControl.SessionWriter do
           Enum.map_join(entries, "\n", fn {k, v} -> "  #{k}: #{scalar_yaml(v)}" end)
 
         "#{key}:\n" <> body
+    end
+  end
+
+  # Like render_block/3 but keys in `explicit_null_keys` are rendered as
+  # `null` even when their value is nil, rather than being omitted. This
+  # allows callers to explicitly clear a field in the YAML.
+  defp render_block_with_explicit_nulls(key, map, allowed_keys, explicit_null_keys)
+       when is_map(map) and is_list(explicit_null_keys) do
+    null_set = MapSet.new(explicit_null_keys)
+    entries = Enum.flat_map(allowed_keys, &collect_entry(&1, map, null_set))
+
+    case entries do
+      [] ->
+        "#{key}: null"
+
+      _ ->
+        body =
+          Enum.map_join(entries, "\n", fn {k, v} -> "  #{k}: #{scalar_yaml(v)}" end)
+
+        "#{key}:\n" <> body
+    end
+  end
+
+  defp collect_entry(k, map, null_set) do
+    case Map.fetch(map, k) do
+      {:ok, nil} -> if MapSet.member?(null_set, k), do: [{k, nil}], else: []
+      {:ok, value} -> [{k, value}]
+      :error -> []
     end
   end
 
