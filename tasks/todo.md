@@ -1,49 +1,60 @@
-# Todo: Session Detail LiveView
+# Todo: Needs-Attention Triage + SR Session Detail
 
 Plan: `tasks/plan.md`
-Spec: `docs/session-detail-liveview.md`
+Spec: `docs/plans/needs-attention-triage.md`
 
-## Phase 1 — Foundation
+## Phase 1 — Foundations (parallel)
 
-- [ ] **T1** Identifier validation + `SessionDetailPresenter` skeleton
-      (`validate_identifier/1`, `payload/3` returning live-state only).
+- [x] **A** Add `dashboard_url: str | None = None` to `SardineRunRuntime`
+      (traffic-control/packages/schema). — `feat/triage-schema` `276fab6`
+- [x] **B** TC "Needs your attention" section on `/` (filter, sort,
+      tool badge, empty state). — `feat/triage-attention` `31789df`
+- [x] **C1** Identifier validation + `SessionDetailPresenter` skeleton
+      (sardine-run). — on `feat/sardine-run-migration` `9362607`
 
-## Phase 2 — Slice 1: route works end-to-end
+### Checkpoint 1
+- [ ] A, B, C1 merged.
+- [ ] `make all` (SR), `uv run pytest` (TC) green.
+- [ ] Manual: triage section visible on TC fleet view.
 
-- [ ] **T2** Route `live("/session/:issue_identifier", ...)`,
-      `SessionDetailLive` mount/render/handle_info, header + live-state
-      section, 404 page, PubSub + runtime tick.
+## Phase 2 — SR slice 1 end-to-end
 
-### Checkpoint after T2
+- [x] **C2** Route + `SessionDetailLive` + live-state + 404
+      (sardine-run).
 
-- [ ] `make all` green
-- [ ] Manual smoke against live state-repo
-- [ ] Identifier validation rejects dot-dot/slash in tests
-- [ ] Human review
+### Checkpoint 2
+- [ ] C2 merged. Identifier-injection cases rejected in tests.
 
-## Phase 3 — Section slices (T3, T4, T5 are independent)
+## Phase 3 — SR section slices (parallel)
 
-- [ ] **T3** Workspace git log section (`git log --oneline -10`,
-      `PathSafety` gate, 2s timeout, degraded states).
-- [ ] **T4** Filtered log-tail section (≤5 MiB scan, last 200 matches,
-      missing-file degrade).
-- [ ] **T5** notes.md + on-disk paths section (memory-tracker
-      degrade, four absolute paths).
+- [ ] **C3** Workspace git log section (sardine-run).
+- [ ] **C4** Filtered log-tail section (sardine-run).
+- [ ] **C5** notes.md + on-disk paths section (sardine-run).
 
-### Checkpoint after T3–T5
+### Checkpoint 3
+- [ ] C3 + C4 + C5 merged. All five sections rendered for live issue.
+- [ ] Degraded states verified.
 
-- [ ] `make all` green
-- [ ] Manual smoke for every section, including degraded states
-- [ ] Presenter branch coverage materially complete
+## Phase 4 — Drill-down + cross-link wiring (parallel)
 
-## Phase 4 — Wire-up and docs
+- [ ] **C6** Dashboard "View session" links on Running and Retrying
+      rows (sardine-run).
+- [ ] **D** SR populates `dashboard_url` on dispatch; clears on
+      shutdown (sardine-run).
+- [ ] **E** TC "Open in Sardine Run" button on `/sessions/{id}`
+      (traffic-control).
 
-- [ ] **T6** Dashboard "View session" links on Running and Retrying
-      rows; `README.md` + `elixir/README.md` updates.
+### Checkpoint 4
+- [ ] C6, D, E merged. End-to-end mutual deep-link verified.
 
-### Checkpoint: complete
+## Phase 5 — Docs
 
-- [ ] All T1–T6 acceptance criteria checked
-- [ ] `make all` green
-- [ ] PR body passes `mix pr_body.check`
-- [ ] Code review (human or `agent-skills:review`)
+- [ ] **F** `traffic-control/README.md`, `sardine-run/README.md`,
+      `sardine-run/elixir/README.md`, `sardine-run/SPEC.md` updates.
+
+### Checkpoint 5 — Done
+
+- [ ] All acceptance criteria from
+      `docs/plans/needs-attention-triage.md` met.
+- [ ] PRs opened in both repos with the spec linked.
+- [ ] `mix pr_body.check` clean for SR PR.
