@@ -8,7 +8,9 @@ defmodule SardineRun.Orchestrator do
   import Bitwise, only: [<<<: 2]
 
   alias SardineRun.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
+  alias SardineRun.AgentRunner.WorkspaceHookFailedError
   alias SardineRun.Tracker.Issue
+  alias SardineRun.TrafficControl.SessionWriter
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -142,6 +144,9 @@ defmodule SardineRun.Orchestrator do
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
+
+            {%WorkspaceHookFailedError{hook_name: "after_create"} = err, _stack} ->
+              handle_after_create_failure(state, issue_id, running_entry, err)
 
             _ ->
               Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
@@ -768,6 +773,50 @@ defmodule SardineRun.Orchestrator do
       | completed: MapSet.put(state.completed, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+  end
+
+  defp handle_after_create_failure(
+         %State{} = state,
+         issue_id,
+         running_entry,
+         %WorkspaceHookFailedError{} = err
+       ) do
+    identifier = Map.get(running_entry, :identifier) || issue_id
+    note = build_after_create_waiting_note(err)
+
+    Logger.warning(
+      "after_create hook refused for issue_id=#{issue_id} issue_identifier=#{identifier} status=#{err.status}; setting session waiting/external"
+    )
+
+    case SessionWriter.update_status(issue_id, "waiting", %{
+           "kind" => "external",
+           "note" => note
+         }) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to mark issue_id=#{issue_id} waiting/external after hook failure: #{inspect(reason)}"
+        )
+    end
+
+    # `pop_running_entry/2` already removed the running entry; we just need to
+    # clear any pending retry timer and mark the issue as terminal-for-this-run.
+    complete_issue(state, issue_id)
+  end
+
+  defp build_after_create_waiting_note(%WorkspaceHookFailedError{
+         hook_name: hook_name,
+         status: status,
+         output: output
+       }) do
+    snippet = output |> to_string() |> String.trim() |> String.slice(0, 1_000)
+
+    "after_create hook (#{hook_name}) refused with exit #{status}. " <>
+      "Resolve the underlying issue (e.g. split a multi-repo session, " <>
+      "add a `kind: repo` link, or clear the workspace) and flip status back to `active`. " <>
+      "Hook output:\n#{snippet}"
   end
 
   defp schedule_issue_retry(%State{} = state, issue_id, attempt, metadata)

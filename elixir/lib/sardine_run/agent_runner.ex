@@ -4,6 +4,7 @@ defmodule SardineRun.AgentRunner do
   """
 
   require Logger
+  alias SardineRun.AgentRunner.WorkspaceHookFailedError
   alias SardineRun.Codex.AppServer
   alias SardineRun.{Config, PromptBuilder, Tracker, Tracker.Issue, Workspace}
 
@@ -19,6 +20,16 @@ defmodule SardineRun.AgentRunner do
     case run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
       :ok ->
         :ok
+
+      {:error, {:workspace_hook_failed, hook_name, status, output} = reason} ->
+        Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
+
+        raise WorkspaceHookFailedError,
+          hook_name: hook_name,
+          status: status,
+          output: output,
+          issue_id: Map.get(issue, :id) || Map.get(issue, "id"),
+          issue_identifier: Map.get(issue, :identifier) || Map.get(issue, "identifier")
 
       {:error, reason} ->
         Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")

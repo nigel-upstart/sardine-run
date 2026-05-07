@@ -205,6 +205,48 @@ defmodule SardineRun.WorkspaceAndConfigTest do
 
       assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
                Workspace.create_for_issue("MT-FAIL")
+
+      # The freshly-created workspace must be wiped so a subsequent attempt
+      # re-runs after_create instead of skipping it because the dir already exists.
+      refute File.dir?(Path.join(workspace_root, "MT-FAIL"))
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace re-runs after_create when the hook recovers on a later attempt" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "sardine-run-workspace-hook-recover-#{System.unique_integer([:positive])}"
+      )
+
+    flag_file = Path.join(workspace_root, "MT-RECOVER.attempt")
+
+    try do
+      File.mkdir_p!(workspace_root)
+
+      hook = """
+      if [ -f #{flag_file} ]; then
+        echo recovered > $PWD/RECOVERED
+        exit 0
+      else
+        touch #{flag_file}
+        echo first-attempt-fails
+        exit 17
+      fi
+      """
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: hook
+      )
+
+      assert {:error, {:workspace_hook_failed, "after_create", 17, _}} =
+               Workspace.create_for_issue("MT-RECOVER")
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MT-RECOVER")
+      assert File.read!(Path.join(workspace, "RECOVERED")) == "recovered\n"
     after
       File.rm_rf(workspace_root)
     end

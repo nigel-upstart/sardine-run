@@ -217,12 +217,40 @@ defmodule SardineRun.Workspace do
             :ok
 
           command ->
-            run_hook(command, workspace, issue_context, "after_create", worker_host)
+            case run_hook(command, workspace, issue_context, "after_create", worker_host) do
+              :ok ->
+                :ok
+
+              {:error, _reason} = err ->
+                # Wipe the freshly-created workspace so the next attempt re-runs
+                # after_create from scratch instead of reusing a half-initialized
+                # directory. Best-effort: ignore cleanup failures.
+                cleanup_failed_workspace(workspace, worker_host)
+                err
+            end
         end
 
       false ->
         :ok
     end
+  end
+
+  defp cleanup_failed_workspace(workspace, nil) when is_binary(workspace) do
+    _ = File.rm_rf(workspace)
+    :ok
+  end
+
+  defp cleanup_failed_workspace(workspace, worker_host)
+       when is_binary(workspace) and is_binary(worker_host) do
+    script =
+      [
+        remote_shell_assign("workspace", workspace),
+        "rm -rf \"$workspace\""
+      ]
+      |> Enum.join("\n")
+
+    _ = run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms)
+    :ok
   end
 
   defp maybe_run_before_remove_hook(workspace, nil) do
