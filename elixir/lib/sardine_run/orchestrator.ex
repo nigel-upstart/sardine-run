@@ -867,17 +867,16 @@ defmodule SardineRun.Orchestrator do
     new_until = now_ms + desired_pause_ms
     current_until = state.codex_dispatch_paused_until_ms
 
-    extends_pause? =
-      is_nil(current_until) or new_until > current_until
+    # Tolerance — repeated 403s that arrive milliseconds apart should not
+    # extend the pause or re-log; only treat the new window as material when
+    # it actually extends the existing pause by a non-trivial amount.
+    extension_tolerance_ms = 60 * 1_000
 
     cond do
       desired_pause_ms <= 0 ->
         state
 
-      not extends_pause? ->
-        state
-
-      true ->
+      is_nil(current_until) ->
         Logger.warning(
           "Codex rate limit detected (#{reason}); pausing dispatch for #{div(desired_pause_ms, 1_000)}s" <>
             case reset_at do
@@ -893,6 +892,24 @@ defmodule SardineRun.Orchestrator do
           | codex_dispatch_paused_until_ms: new_until,
             codex_dispatch_pause_reason: reason
         }
+
+      new_until > current_until + extension_tolerance_ms ->
+        added_ms = new_until - current_until
+
+        Logger.info(
+          "Codex rate-limit pause extended by #{div(added_ms, 1_000)}s (reason=#{reason})"
+        )
+
+        Process.send_after(self(), :codex_dispatch_pause_expired, new_until - now_ms)
+
+        %{
+          state
+          | codex_dispatch_paused_until_ms: new_until,
+            codex_dispatch_pause_reason: reason
+        }
+
+      true ->
+        state
     end
   end
 
