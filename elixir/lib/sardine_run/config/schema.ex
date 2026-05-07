@@ -160,6 +160,7 @@ defmodule SardineRun.Config.Schema do
 
       field(:thread_sandbox, :string, default: "workspace-write")
       field(:turn_sandbox_policy, :map)
+      field(:network_access, :boolean, default: false)
       field(:turn_timeout_ms, :integer, default: 3_600_000)
       field(:read_timeout_ms, :integer, default: 5_000)
       field(:stall_timeout_ms, :integer, default: 300_000)
@@ -175,6 +176,7 @@ defmodule SardineRun.Config.Schema do
           :approval_policy,
           :thread_sandbox,
           :turn_sandbox_policy,
+          :network_access,
           :turn_timeout_ms,
           :read_timeout_ms,
           :stall_timeout_ms
@@ -288,13 +290,15 @@ defmodule SardineRun.Config.Schema do
         workspace
         |> default_workspace_root(settings.workspace.root)
         |> expand_local_workspace_root()
-        |> default_turn_sandbox_policy()
+        |> default_turn_sandbox_policy(settings.codex.network_access)
     end
   end
 
   @spec resolve_runtime_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
   def resolve_runtime_turn_sandbox_policy(settings, workspace \\ nil, opts \\ []) do
+    opts = Keyword.put(opts, :network_access, settings.codex.network_access)
+
     case settings.codex.turn_sandbox_policy do
       %{} = policy ->
         {:ok, policy}
@@ -441,24 +445,26 @@ defmodule SardineRun.Config.Schema do
     end
   end
 
-  defp default_turn_sandbox_policy(workspace) do
+  defp default_turn_sandbox_policy(workspace, network_access) do
     %{
       "type" => "workspaceWrite",
       "writableRoots" => [workspace],
       "readOnlyAccess" => %{"type" => "fullAccess"},
-      "networkAccess" => false,
+      "networkAccess" => network_access,
       "excludeTmpdirEnvVar" => false,
       "excludeSlashTmp" => false
     }
   end
 
   defp default_runtime_turn_sandbox_policy(workspace_root, opts) when is_binary(workspace_root) do
+    network_access = Keyword.get(opts, :network_access, false)
+
     if Keyword.get(opts, :remote, false) do
-      {:ok, default_turn_sandbox_policy(workspace_root)}
+      {:ok, default_turn_sandbox_policy(workspace_root, network_access)}
     else
       with expanded_workspace_root <- expand_local_workspace_root(workspace_root),
            {:ok, canonical_workspace_root} <- PathSafety.canonicalize(expanded_workspace_root) do
-        {:ok, default_turn_sandbox_policy(canonical_workspace_root)}
+        {:ok, default_turn_sandbox_policy(canonical_workspace_root, network_access)}
       end
     end
   end

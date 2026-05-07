@@ -22,13 +22,15 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
 codex:
-  command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
+  command: "$HOME/repos/nigel-upstart/sardine-run/elixir/scripts/codex-launch.sh"
   approval_policy: never
   thread_sandbox: workspace-write
+  # Network access is ON so turns can run npm ci / uv sync / CDK commands against
+  # CodeArtifact and PyPI. Cloning still happens in the after_create hook (host
+  # process, outside the sandbox) so SSH credentials stay on the host.
+  network_access: true
   # turn_sandbox_policy intentionally unset: Elixir injects a default with
-  # writableRoots=[<workspace>], readOnlyAccess=fullAccess, networkAccess=false.
-  # Network is OFF inside the Codex turn; cloning happens in the after_create
-  # hook (host process). Enabling network in-sandbox is tracked separately.
+  # writableRoots=[<workspace>], readOnlyAccess=fullAccess, networkAccess=<above>.
 ---
 
 You are working on a Traffic Control session `{{ issue.identifier }}`.
