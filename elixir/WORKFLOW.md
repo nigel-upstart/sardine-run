@@ -13,12 +13,25 @@ workspace:
   root: ~/code/sardine-run-workspaces
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/openai/symphony .
-    if command -v mise >/dev/null 2>&1; then
-      cd elixir && mise trust && mise exec -- mix deps.get
+    # Detect which repo to clone via a "repo:<slug>" tag in session.yaml.
+    # If no tag is found, skip — the agent will handle workspace setup.
+    SESSION_ID=$(basename "$PWD")
+    STATE_REPO="${TRAFFIC_CONTROL_STATE_REPO:-$HOME/repos/nigel-upstart/traffic-control-state}"
+    SESSION_YAML="$STATE_REPO/sessions/$SESSION_ID/session.yaml"
+    REPO_SLUG=""
+    if [ -f "$SESSION_YAML" ]; then
+      REPO_SLUG=$(grep -oE 'repo:[a-zA-Z0-9_-]+' "$SESSION_YAML" | head -1 | cut -d: -f2 || true)
     fi
-  before_remove: |
-    cd elixir && mise exec -- mix workspace.before_remove
+    if [ -z "$REPO_SLUG" ]; then
+      echo "No repo:<slug> tag found in session.yaml; skipping clone."
+      exit 0
+    fi
+    case "$REPO_SLUG" in
+      traffic-control) ORG="nigel-upstart" ;;
+      *) ORG="teamupstart" ;;
+    esac
+    echo "Cloning $ORG/$REPO_SLUG..."
+    git clone "git@github.com:$ORG/$REPO_SLUG.git" .
 agent:
   max_concurrent_agents: 10
   max_turns: 20
@@ -30,7 +43,36 @@ codex:
     type: workspaceWrite
 ---
 
-You are working on a Traffic Control session `{{ issue.identifier }}`
+You are working on a Traffic Control session `{{ issue.identifier }}`.
+
+## Known repositories
+
+The repos you may be working in:
+
+| GitHub repo | Typical session title patterns |
+|---|---|
+| `github.com/nigel-upstart/traffic-control` | `tc:`, `feat:` or `fix:` for dashboard/CLI/agent_runtime |
+| `github.com/teamupstart/claude-code-extensions` | `tce-XXX:`, `cce:` |
+| `github.com/teamupstart/coral` | `coral-XXX` in title or branch |
+| `github.com/teamupstart/ai-acceleration` | AWS infra, ai-acceleration in title |
+| `github.com/teamupstart/otel-ai-gateway` | otel or gateway in title |
+| `github.com/teamupstart/template-slack-bot-vercel` | `escape-velocity-api-XXX`, `slack_bot_vercel` |
+| `github.com/teamupstart/gen-ai-guild-slack-bot` | `GENAI-XXX` issues, bufmoji, guild |
+
+## Workspace and repo setup
+
+At the start of each session:
+
+1. Check whether the workspace already contains a cloned repo (`ls` and check for `.git`).
+2. If the workspace is empty, determine the correct repo from `{{ issue.title }}`, `{{ issue.description }}`, and `{{ issue.branch_name }}` using the table above, then clone it:
+   ```
+   git clone git@github.com:<org>/<repo>.git .
+   ```
+3. If the session has `{{ issue.branch_name }}` set, check it out after cloning:
+   ```
+   git fetch origin && git checkout {{ issue.branch_name }} 2>/dev/null || git checkout -b {{ issue.branch_name }}
+   ```
+4. Run any standard project setup (e.g., `npm install`, `mix setup`, `uv sync`) based on what you find in the repo root.
 
 {% if attempt %}
 Continuation context:
@@ -61,7 +103,7 @@ Instructions:
 2. Only stop early for a true blocker (missing required auth/permissions/secrets). If blocked, record it in the workpad and move the session to `waiting` via the `sardine_run_session` tool.
 3. Final message must report completed actions and blockers only. Do not include "next steps for user".
 
-Work only in the provided repository copy. Do not touch any other path.
+Work only inside the assigned workspace directory. Do not touch any other path on the filesystem.
 
 ## The `sardine_run_session` dynamic tool (your interface to Traffic Control)
 

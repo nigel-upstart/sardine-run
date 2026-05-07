@@ -28,7 +28,7 @@ defmodule SardineRun.Codex.DynamicToolTest do
       assert is_binary(tool["description"])
       assert String.length(tool["description"]) > 0
 
-      params = tool["parameters"]
+      params = tool["inputSchema"]
       assert params["type"] == "object"
       props = params["properties"]
 

@@ -20,7 +20,7 @@ defmodule SardineRun.Codex.DynamicTool do
       "Update the assigned Traffic Control session for this Sardine Run agent. " <>
         "Use to change status, record waiting state, append notes, add links, " <>
         "or send a heartbeat.",
-    "parameters" => %{
+    "inputSchema" => %{
       "type" => "object",
       "additionalProperties" => false,
       "required" => ["operation", "session_id"],
