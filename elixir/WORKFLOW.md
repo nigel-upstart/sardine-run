@@ -45,7 +45,7 @@ The repos you may be working in:
 | `github.com/teamupstart/claude-code-extensions` | `tce-XXX:`, `cce:` |
 | `github.com/teamupstart/coral` | `coral-XXX` in title or branch |
 | `github.com/teamupstart/ai-acceleration` | AWS infra, ai-acceleration in title |
-| `github.com/teamupstart/otel-ai-gateway` | otel or gateway in title |
+| `github.com/teamupstart/corp-otel-gateway` | otel or gateway in title |
 | `github.com/teamupstart/template-slack-bot-vercel` | `escape-velocity-api-XXX`, `slack_bot_vercel` |
 | `github.com/teamupstart/gen-ai-guild-slack-bot` | `GENAI-XXX` issues, bufmoji, guild |
 | `github.com/teamupstart/cicd-reusable-workflows` | `fix:` or `feat:` for CI/CD workflow pins and updates |
