@@ -25,6 +25,7 @@ defmodule SardineRunWeb.Router do
     pipe_through(:browser)
 
     live("/", DashboardLive, :index)
+    live("/session/:issue_identifier", SessionDetailLive, :show)
   end
 
   scope "/", SardineRunWeb do
