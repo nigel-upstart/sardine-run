@@ -39,8 +39,8 @@ Spec: `docs/plans/needs-attention-triage.md`
 
 - [x] **C6** Dashboard "View session" links on Running and Retrying
       rows (sardine-run). — `d861930`
-- [ ] **D** SR populates `dashboard_url` on dispatch; clears on
-      shutdown (sardine-run).
+- [x] **D** SR populates `dashboard_url` on dispatch; clears on
+      shutdown (sardine-run). — `1e757e9`
 - [ ] **E** TC "Open in Sardine Run" button on `/sessions/{id}`
       (traffic-control).
 
@@ -49,8 +49,9 @@ Spec: `docs/plans/needs-attention-triage.md`
 
 ## Phase 5 — Docs
 
-- [ ] **F** `traffic-control/README.md`, `sardine-run/README.md`,
-      `sardine-run/elixir/README.md`, `sardine-run/SPEC.md` updates.
+- [x] **F** `sardine-run/README.md`, `sardine-run/elixir/README.md`,
+      `sardine-run/SPEC.md` updates. — `09db879` (TC-side README still
+      pending in the other repo)
 
 ### Checkpoint 5 — Done
 
