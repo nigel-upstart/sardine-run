@@ -47,17 +47,22 @@ fi
 # --- Helpers -----------------------------------------------------------------
 extract_link_urls() {
   # $1 = kind name to match (e.g. 'repo' or 'pr')
+  # Handles both YAML layouts: `- kind: foo\n  url: ...` and
+  # `- label: foo\n  kind: bar\n  url: ...`. The leading-dash regex variants
+  # accept lines like `- kind: pr` where the dash is the first character.
   awk -v want="$1" '
-    /^- / { kind=""; url="" }
-    /^[[:space:]]*kind:[[:space:]]/ {
-      sub(/^[[:space:]]*kind:[[:space:]]*"?/, "")
-      sub(/"?[[:space:]]*$/, "")
-      kind=$0
+    /^-[[:space:]]/ { kind=""; url="" }
+    /^[-[:space:]]*kind:[[:space:]]/ {
+      line=$0
+      sub(/^[-[:space:]]*kind:[[:space:]]*"?/, "", line)
+      sub(/"?[[:space:]]*$/, "", line)
+      kind=line
     }
-    /^[[:space:]]*url:[[:space:]]/ {
-      sub(/^[[:space:]]*url:[[:space:]]*"?/, "")
-      sub(/"?[[:space:]]*$/, "")
-      if (kind == want) print
+    /^[-[:space:]]*url:[[:space:]]/ {
+      line=$0
+      sub(/^[-[:space:]]*url:[[:space:]]*"?/, "", line)
+      sub(/"?[[:space:]]*$/, "", line)
+      if (kind == want && line != "") print line
     }
   ' "$LINKS_YAML"
 }
