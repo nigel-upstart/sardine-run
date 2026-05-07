@@ -153,6 +153,7 @@ defmodule SardineRunWeb.DashboardLive do
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
+                        <a class="issue-link" href={"/session/#{entry.issue_identifier}"}>View session</a>
                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
                       </div>
                     </td>
@@ -232,6 +233,7 @@ defmodule SardineRunWeb.DashboardLive do
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
+                        <a class="issue-link" href={"/session/#{entry.issue_identifier}"}>View session</a>
                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
                       </div>
                     </td>

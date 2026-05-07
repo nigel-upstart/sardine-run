@@ -404,6 +404,9 @@ defmodule SardineRun.ExtensionsTest do
     assert html =~ "status-badge-live"
     assert html =~ "status-badge-offline"
 
+    assert html =~ ~s(href="/session/MT-HTTP">View session</a>)
+    assert html =~ ~s(href="/session/MT-RETRY">View session</a>)
+
     updated_snapshot =
       put_in(snapshot.running, [
         %{
