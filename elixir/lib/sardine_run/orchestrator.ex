@@ -847,9 +847,7 @@ defmodule SardineRun.Orchestrator do
        }) do
     remaining_ms = max(0, until_ms - System.monotonic_time(:millisecond))
 
-    Logger.info(
-      "Skipping dispatch: Codex rate-limit pause active reason=#{inspect(reason)} resumes_in_ms=#{remaining_ms}"
-    )
+    Logger.info("Skipping dispatch: Codex rate-limit pause active reason=#{inspect(reason)} resumes_in_ms=#{remaining_ms}")
   end
 
   defp apply_codex_dispatch_pause(%State{} = state, reason, reset_at) do
@@ -896,9 +894,7 @@ defmodule SardineRun.Orchestrator do
       new_until > current_until + extension_tolerance_ms ->
         added_ms = new_until - current_until
 
-        Logger.info(
-          "Codex rate-limit pause extended by #{div(added_ms, 1_000)}s (reason=#{reason})"
-        )
+        Logger.info("Codex rate-limit pause extended by #{div(added_ms, 1_000)}s (reason=#{reason})")
 
         Process.send_after(self(), :codex_dispatch_pause_expired, new_until - now_ms)
 
@@ -922,9 +918,7 @@ defmodule SardineRun.Orchestrator do
     identifier = Map.get(running_entry, :identifier) || issue_id
     note = build_after_create_waiting_note(err)
 
-    Logger.warning(
-      "after_create hook refused for issue_id=#{issue_id} issue_identifier=#{identifier} status=#{err.status}; setting session waiting/external"
-    )
+    Logger.warning("after_create hook refused for issue_id=#{issue_id} issue_identifier=#{identifier} status=#{err.status}; setting session waiting/external")
 
     case SessionWriter.update_status(issue_id, "waiting", %{
            "kind" => "external",
@@ -934,9 +928,7 @@ defmodule SardineRun.Orchestrator do
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to mark issue_id=#{issue_id} waiting/external after hook failure: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to mark issue_id=#{issue_id} waiting/external after hook failure: #{inspect(reason)}")
     end
 
     # `pop_running_entry/2` already removed the running entry; we just need to

@@ -242,6 +242,7 @@ defmodule SardineRun.Codex.DynamicToolTest do
       assert File.exists?(links_path)
       raw = File.read!(links_path)
       {:ok, parsed} = YamlElixir.read_from_string(raw)
+
       assert parsed == [
                %{
                  "label" => "PR #42",

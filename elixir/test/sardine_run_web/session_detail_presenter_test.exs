@@ -137,6 +137,172 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
     end
   end
 
+  describe "payload/3 — workspace git log section" do
+    setup do
+      tmp_root =
+        Path.join(
+          System.tmp_dir!(),
+          "sr-presenter-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp_root)
+      on_exit(fn -> File.rm_rf!(tmp_root) end)
+
+      {:ok, root: tmp_root}
+    end
+
+    test "returns the last commits for a real git repo workspace", %{root: root} do
+      workspace = Path.join(root, "UPS-GIT")
+      init_git_repo!(workspace)
+      commit_file!(workspace, "first.txt", "first commit")
+      commit_file!(workspace, "second.txt", "second commit")
+
+      snapshot = build_running_snapshot("UPS-GIT", workspace)
+      filesystem = %{workspace_root: root}
+
+      assert {:ok, payload} = SessionDetailPresenter.payload("UPS-GIT", snapshot, filesystem)
+
+      assert payload.git_log.status == :ok
+      assert length(payload.git_log.lines) == 2
+
+      assert Enum.any?(payload.git_log.lines, &String.contains?(&1, "second commit"))
+      assert Enum.any?(payload.git_log.lines, &String.contains?(&1, "first commit"))
+    end
+
+    test "returns :empty for a directory that is not a git repo", %{root: root} do
+      workspace = Path.join(root, "UPS-NOREPO")
+      File.mkdir_p!(workspace)
+
+      snapshot = build_running_snapshot("UPS-NOREPO", workspace)
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-NOREPO", snapshot, %{workspace_root: root})
+
+      assert payload.git_log.status == :empty
+      assert payload.git_log.lines == []
+    end
+
+    test "returns :workspace_not_present when the directory does not exist", %{root: root} do
+      missing = Path.join(root, "UPS-MISSING-DIR")
+      snapshot = build_running_snapshot("UPS-MISSING-DIR", missing)
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-MISSING-DIR", snapshot, %{workspace_root: root})
+
+      assert payload.git_log.status == :workspace_not_present
+      assert payload.git_log.lines == []
+    end
+
+    test "returns :unsafe_workspace when the workspace_path falls outside workspace_root", %{root: root} do
+      outside =
+        Path.join(
+          System.tmp_dir!(),
+          "sr-outside-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(outside)
+      init_git_repo!(outside)
+      commit_file!(outside, "a.txt", "a")
+
+      snapshot = build_running_snapshot("UPS-OUTSIDE", outside)
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-OUTSIDE", snapshot, %{workspace_root: root})
+
+      assert payload.git_log.status == :unsafe_workspace
+      assert payload.git_log.lines == []
+
+      File.rm_rf!(outside)
+    end
+
+    test "returns :unconfigured when filesystem has no workspace_root", %{root: root} do
+      workspace = Path.join(root, "UPS-NOFS")
+      File.mkdir_p!(workspace)
+
+      snapshot = build_running_snapshot("UPS-NOFS", workspace)
+
+      assert {:ok, payload} = SessionDetailPresenter.payload("UPS-NOFS", snapshot, %{})
+
+      assert payload.git_log.status == :unconfigured
+      assert payload.git_log.lines == []
+    end
+
+    test "returns :unconfigured when the entry has no workspace_path" do
+      now = DateTime.utc_now()
+
+      running_entry =
+        running_entry("UPS-NOWS", DateTime.add(now, -1, :second), now)
+        |> Map.put(:workspace_path, nil)
+
+      snapshot = %{running: [running_entry], retrying: []}
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-NOWS", snapshot, %{workspace_root: "/tmp"})
+
+      assert payload.git_log.status == :unconfigured
+      assert payload.git_log.lines == []
+    end
+
+    defp build_running_snapshot(identifier, workspace) do
+      now = DateTime.utc_now()
+      started_at = DateTime.add(now, -10, :second)
+
+      %{
+        running: [
+          running_entry(identifier, started_at, now) |> Map.put(:workspace_path, workspace)
+        ],
+        retrying: []
+      }
+    end
+
+    defp running_entry(identifier, started_at, now) do
+      %{
+        issue_id: "id-#{identifier}",
+        identifier: identifier,
+        state: "In Progress",
+        worker_host: nil,
+        workspace_path: nil,
+        session_id: "sess-#{identifier}",
+        codex_app_server_pid: nil,
+        codex_input_tokens: 0,
+        codex_output_tokens: 0,
+        codex_total_tokens: 0,
+        turn_count: 0,
+        started_at: started_at,
+        last_codex_timestamp: now,
+        last_codex_message: nil,
+        last_codex_event: nil,
+        runtime_seconds: 10
+      }
+    end
+
+    defp init_git_repo!(path) do
+      File.mkdir_p!(path)
+      {_, 0} = System.cmd("git", ["-C", path, "init", "--initial-branch=main"], stderr_to_stdout: true)
+
+      {_, 0} =
+        System.cmd("git", ["-C", path, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+
+      {_, 0} =
+        System.cmd("git", ["-C", path, "config", "user.name", "Test"], stderr_to_stdout: true)
+
+      {_, 0} =
+        System.cmd("git", ["-C", path, "config", "commit.gpgsign", "false"], stderr_to_stdout: true)
+
+      :ok
+    end
+
+    defp commit_file!(repo, filename, message) do
+      File.write!(Path.join(repo, filename), "content\n")
+      {_, 0} = System.cmd("git", ["-C", repo, "add", filename], stderr_to_stdout: true)
+
+      {_, 0} =
+        System.cmd("git", ["-C", repo, "commit", "-m", message], stderr_to_stdout: true)
+
+      :ok
+    end
+  end
+
   describe "payload/3 — running takes precedence over retrying" do
     test "if the identifier appears in both running and retrying, status is running" do
       now = DateTime.utc_now()

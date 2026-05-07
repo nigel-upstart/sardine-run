@@ -361,8 +361,7 @@ defmodule SardineRun.Config.Schema do
   defp finalize_settings(settings) do
     tracker = %{
       settings.tracker
-      | state_repo:
-          resolve_path_value(settings.tracker.state_repo, System.get_env("TRAFFIC_CONTROL_STATE_REPO"))
+      | state_repo: resolve_path_value(settings.tracker.state_repo, System.get_env("TRAFFIC_CONTROL_STATE_REPO"))
     }
 
     workspace = %{

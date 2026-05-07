@@ -128,6 +128,59 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
       assert html =~ ~s(href="/")
     end
 
+    test "renders the workspace git log section for a real repo" do
+      workspace_root = Path.join(System.tmp_dir!(), "sr-live-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(workspace_root)
+      on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+      workspace = Path.join(workspace_root, "UPS-LIVELOG")
+      File.mkdir_p!(workspace)
+      System.cmd("git", ["-C", workspace, "init", "--initial-branch=main"], stderr_to_stdout: true)
+      System.cmd("git", ["-C", workspace, "config", "user.email", "t@example.com"], stderr_to_stdout: true)
+      System.cmd("git", ["-C", workspace, "config", "user.name", "T"], stderr_to_stdout: true)
+      System.cmd("git", ["-C", workspace, "config", "commit.gpgsign", "false"], stderr_to_stdout: true)
+      File.write!(Path.join(workspace, "a.txt"), "x\n")
+      System.cmd("git", ["-C", workspace, "add", "a.txt"], stderr_to_stdout: true)
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial commit visible"], stderr_to_stdout: true)
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      now = DateTime.utc_now()
+      started_at = DateTime.add(now, -1, :second)
+
+      snapshot = %{
+        running: [
+          %{
+            issue_id: "id-livelog",
+            identifier: "UPS-LIVELOG",
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: workspace,
+            session_id: "thread-livelog",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 0,
+            started_at: started_at,
+            last_codex_timestamp: now,
+            last_codex_message: nil,
+            last_codex_event: nil,
+            runtime_seconds: 1
+          }
+        ],
+        retrying: []
+      }
+
+      orchestrator_name = start_static_orchestrator!(snapshot)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+      {:ok, _view, html} = live(build_conn(), "/session/UPS-LIVELOG")
+
+      assert html =~ "Workspace git log"
+      assert html =~ "initial commit visible"
+    end
+
     test "re-renders when an :observability_updated broadcast fires" do
       snapshot_v1 = build_running_snapshot("UPS-PUBSUB", "first message")
 

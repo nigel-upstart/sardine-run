@@ -156,6 +156,28 @@ defmodule SardineRunWeb.SessionDetailLive do
               </div>
             <% end %>
           </section>
+
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Workspace git log</h2>
+                <p class="section-copy">Last <%= length(payload.git_log.lines) %> commits in the agent's workspace.</p>
+              </div>
+            </div>
+
+            <%= case payload.git_log.status do %>
+              <% :ok -> %>
+                <pre class="code-panel"><%= Enum.join(payload.git_log.lines, "\n") %></pre>
+              <% :empty -> %>
+                <p class="empty-state">No git history.</p>
+              <% :workspace_not_present -> %>
+                <p class="empty-state">Workspace not present.</p>
+              <% :unsafe_workspace -> %>
+                <p class="empty-state">Workspace path is not contained in the configured workspace root.</p>
+              <% :unconfigured -> %>
+                <p class="empty-state">No workspace configured for this session.</p>
+            <% end %>
+          </section>
         </section>
     <% end %>
     """
@@ -163,8 +185,16 @@ defmodule SardineRunWeb.SessionDetailLive do
 
   defp assign_payload(socket) do
     snapshot = snapshot()
-    result = SessionDetailPresenter.payload(socket.assigns.raw_identifier, snapshot, %{})
+    filesystem = filesystem_context()
+    result = SessionDetailPresenter.payload(socket.assigns.raw_identifier, snapshot, filesystem)
     assign(socket, :result, result)
+  end
+
+  defp filesystem_context do
+    case SardineRun.Config.settings() do
+      {:ok, settings} -> %{workspace_root: settings.workspace.root}
+      _ -> %{}
+    end
   end
 
   defp snapshot do

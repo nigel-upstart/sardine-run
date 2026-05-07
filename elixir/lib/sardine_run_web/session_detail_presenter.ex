@@ -8,9 +8,11 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   derived from the orchestrator snapshot.
   """
 
-  alias SardineRun.StatusDashboard
+  alias SardineRun.{PathSafety, StatusDashboard}
 
   @identifier_pattern ~r/\A[A-Za-z0-9._-]+\z/
+  @git_log_max_count 10
+  @git_log_timeout_ms 5_000
 
   @typedoc "URL-supplied issue identifier after allow-list validation."
   @type session_identifier :: String.t()
@@ -22,11 +24,17 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   """
   @type filesystem :: map()
 
+  @type git_log_status ::
+          :ok | :empty | :workspace_not_present | :unsafe_workspace | :unconfigured
+
+  @type git_log_section :: %{status: git_log_status(), lines: [String.t()]}
+
   @type payload :: %{
           identifier: session_identifier(),
           status: String.t(),
           header: map(),
-          live_state: map()
+          live_state: map(),
+          git_log: git_log_section()
         }
 
   @doc """
@@ -70,7 +78,7 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   def payload(identifier, snapshot, filesystem) when is_map(snapshot) and is_map(filesystem) do
     with {:ok, identifier} <- validate_identifier(identifier),
          {:ok, running, retry} <- find_entries(identifier, snapshot) do
-      {:ok, build_payload(identifier, running, retry)}
+      {:ok, build_payload(identifier, running, retry, filesystem)}
     end
   end
 
@@ -93,13 +101,80 @@ defmodule SardineRunWeb.SessionDetailPresenter do
 
   defp match_identifier?(_entry, _identifier), do: false
 
-  defp build_payload(identifier, running, retry) do
+  defp build_payload(identifier, running, retry, filesystem) do
+    workspace_path = from_first(:workspace_path, running, retry)
+    workspace_root = Map.get(filesystem, :workspace_root)
+
     %{
       identifier: identifier,
       status: status(running, retry),
       header: header(identifier, running, retry),
-      live_state: live_state(running, retry)
+      live_state: live_state(running, retry),
+      git_log: git_log_section(workspace_path, workspace_root)
     }
+  end
+
+  @doc """
+  Run `git log --pretty=format:"%h %s" --max-count=10` against the
+  workspace and return the decoded lines.
+
+  - `:ok` when the workspace is a git repo and `git` exits cleanly.
+  - `:empty` when the dir exists but is not a git repo or `git` exits
+    non-zero.
+  - `:workspace_not_present` when the directory does not exist.
+  - `:unsafe_workspace` when the workspace is not contained in
+    `workspace_root` after canonicalization.
+  - `:unconfigured` when either input is missing.
+
+  Stderr is dropped on the floor — we never leak it into the rendered
+  page.
+  """
+  @spec git_log_section(String.t() | nil, String.t() | nil) :: git_log_section()
+  def git_log_section(nil, _workspace_root), do: %{status: :unconfigured, lines: []}
+  def git_log_section(_workspace_path, nil), do: %{status: :unconfigured, lines: []}
+
+  def git_log_section(workspace_path, workspace_root)
+      when is_binary(workspace_path) and is_binary(workspace_root) do
+    cond do
+      not File.dir?(workspace_path) ->
+        %{status: :workspace_not_present, lines: []}
+
+      not contained?(workspace_path, workspace_root) ->
+        %{status: :unsafe_workspace, lines: []}
+
+      true ->
+        run_git_log(workspace_path)
+    end
+  end
+
+  defp contained?(workspace_path, workspace_root) do
+    with {:ok, canonical_path} <- PathSafety.canonicalize(workspace_path),
+         {:ok, canonical_root} <- PathSafety.canonicalize(workspace_root) do
+      canonical_path == canonical_root or
+        String.starts_with?(canonical_path, canonical_root <> "/")
+    else
+      _ -> false
+    end
+  end
+
+  defp run_git_log(workspace_path) do
+    task =
+      Task.async(fn ->
+        System.cmd(
+          "git",
+          ["-C", workspace_path, "log", "--pretty=format:%h %s", "--max-count=#{@git_log_max_count}"],
+          stderr_to_stdout: true
+        )
+      end)
+
+    case Task.yield(task, @git_log_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {output, 0}} ->
+        lines = output |> String.split("\n", trim: true)
+        %{status: :ok, lines: lines}
+
+      _other ->
+        %{status: :empty, lines: []}
+    end
   end
 
   defp status(running, _retry) when is_map(running), do: "running"

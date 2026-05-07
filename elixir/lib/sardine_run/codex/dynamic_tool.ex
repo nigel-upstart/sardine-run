@@ -28,8 +28,7 @@ defmodule SardineRun.Codex.DynamicTool do
         "operation" => %{
           "type" => "string",
           "enum" => @operations,
-          "description" =>
-            "Which session field group to update: status, heartbeat, note, link, focus, or next_step."
+          "description" => "Which session field group to update: status, heartbeat, note, link, focus, or next_step."
         },
         "session_id" => %{
           "type" => "string",
@@ -43,8 +42,7 @@ defmodule SardineRun.Codex.DynamicTool do
         "waiting_kind" => %{
           "type" => "string",
           "enum" => @waiting_kinds,
-          "description" =>
-            "Optional, only meaningful when status=waiting. Why the session is paused."
+          "description" => "Optional, only meaningful when status=waiting. Why the session is paused."
         },
         "waiting_note" => %{
           "type" => "string",
@@ -60,8 +58,7 @@ defmodule SardineRun.Codex.DynamicTool do
         },
         "link_kind" => %{
           "type" => "string",
-          "description" =>
-            "Required when operation=link. Link category (e.g. jira, slack, pr, doc, repo, other)."
+          "description" => "Required when operation=link. Link category (e.g. jira, slack, pr, doc, repo, other)."
         },
         "url" => %{
           "type" => "string",
