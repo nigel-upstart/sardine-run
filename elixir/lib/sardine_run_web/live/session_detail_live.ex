@@ -8,6 +8,7 @@ defmodule SardineRunWeb.SessionDetailLive do
 
   use Phoenix.LiveView, layout: {SardineRunWeb.Layouts, :app}
 
+  alias SardineRun.{Config, LogFile, TrafficControl}
   alias SardineRunWeb.{Endpoint, ObservabilityPubSub, SessionDetailPresenter}
 
   @runtime_tick_ms 1_000
@@ -261,17 +262,17 @@ defmodule SardineRunWeb.SessionDetailLive do
   end
 
   defp filesystem_context do
-    case SardineRun.Config.settings() do
+    case Config.settings() do
       {:ok, settings} ->
         state_repo =
-          case SardineRun.TrafficControl.Adapter.resolve_state_repo() do
+          case TrafficControl.Adapter.resolve_state_repo() do
             {:ok, repo} -> repo
             _ -> nil
           end
 
         %{
           workspace_root: settings.workspace.root,
-          log_file: SardineRun.LogFile.default_log_file(),
+          log_file: LogFile.default_log_file(),
           state_repo: state_repo
         }
 

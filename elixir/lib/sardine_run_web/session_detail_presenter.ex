@@ -40,7 +40,14 @@ defmodule SardineRunWeb.SessionDetailPresenter do
 
   @type notes_section :: %{status: notes_status(), content: String.t() | nil}
 
-  @type paths_section :: :hidden | %{session_yaml: Path.t(), notes_md: Path.t(), links_yaml: Path.t(), workspace: Path.t() | nil}
+  @type paths_section ::
+          :hidden
+          | %{
+              session_yaml: Path.t(),
+              notes_md: Path.t(),
+              links_yaml: Path.t(),
+              workspace: Path.t() | nil
+            }
 
   @type payload :: %{
           identifier: session_identifier(),
