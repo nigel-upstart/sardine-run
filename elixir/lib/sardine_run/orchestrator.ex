@@ -813,9 +813,9 @@ defmodule SardineRun.Orchestrator do
        }) do
     snippet = output |> to_string() |> String.trim() |> String.slice(0, 1_000)
 
-    "after_create hook (#{hook_name}) refused with exit #{status}. " <>
-      "Resolve the underlying issue (e.g. split a multi-repo session, " <>
-      "add a `kind: repo` link, or clear the workspace) and flip status back to `active`. " <>
+    "#{hook_name} hook refused with exit #{status}. " <>
+      "Resolve the underlying issue (split a multi-repo session, add a `kind: repo` link, " <>
+      "or clear the workspace) and flip status back to `active`. " <>
       "Hook output:\n#{snippet}"
   end
 
