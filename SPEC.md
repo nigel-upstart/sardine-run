@@ -642,6 +642,36 @@ prefix containment).
 
 Invariant 3: Workspace key is sanitized to `[A-Za-z0-9._-]`; replace all other characters with `_`.
 
+### 9.6 Workspace Repo Seeding (Recommended)
+
+A Traffic Control session typically targets a single GitHub repository. To avoid asking the coding
+agent to perform clones from inside a network-restricted sandbox, implementations SHOULD seed the
+workspace from the host process (e.g. an `after_create` hook) before the agent starts.
+
+Resolution priority (first non-empty wins):
+
+1. `links.yaml` entries with `kind: repo` whose URL matches `https://github.com/<org>/<name>`.
+2. `links.yaml` entries with `kind: pr` — extract `<org>/<name>` from
+   `https://github.com/<org>/<name>/pull/<n>`.
+3. `session.yaml` `cwd:` if it contains a `<known-org>/<repo>` segment (`teamupstart`,
+   `nigel-upstart`, `openai`, `getprodigy`).
+
+Outcomes the seeder MUST distinguish:
+
+| Condition | Behavior |
+|---|---|
+| Workspace already a clone of the resolved repo | No-op (idempotent re-runs). |
+| Workspace empty, exactly one resolved repo | Clone via SSH, `git checkout` `session.branch` if set (create from `origin/main` if absent). |
+| Multiple distinct repos resolved across signals | Refuse; non-zero exit. Session SHOULD be split before re-dispatch. |
+| Workspace already a clone of a *different* repo | Refuse; non-zero exit. Operator must clear the workspace before re-dispatch. |
+| No repo signal in session data | Refuse; non-zero exit. Session SHOULD be enriched with a `kind: repo` link or a `cwd` containing a known org/repo path. |
+
+Refusal cases bubble up as `after_create` hook failures (per §9.4), which are fatal to workspace
+creation; the orchestrator surfaces these in logs and the session remains undispatched.
+
+Seeding runs OUTSIDE the Codex sandbox, so DNS, SSH, and writes to `.git` succeed even when the
+turn sandbox is `workspaceWrite` with `networkAccess=false`.
+
 ## 10. Agent Runner Protocol (Coding Agent Integration)
 
 ### 10.1 Launch Contract

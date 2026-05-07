@@ -12,26 +12,12 @@ polling:
 workspace:
   root: ~/code/sardine-run-workspaces
 hooks:
-  after_create: |
-    # Detect which repo to clone via a "repo:<slug>" tag in session.yaml.
-    # If no tag is found, skip — the agent will handle workspace setup.
-    SESSION_ID=$(basename "$PWD")
-    STATE_REPO="${TRAFFIC_CONTROL_STATE_REPO:-$HOME/repos/nigel-upstart/traffic-control-state}"
-    SESSION_YAML="$STATE_REPO/sessions/$SESSION_ID/session.yaml"
-    REPO_SLUG=""
-    if [ -f "$SESSION_YAML" ]; then
-      REPO_SLUG=$(grep -oE 'repo:[a-zA-Z0-9_-]+' "$SESSION_YAML" | head -1 | cut -d: -f2 || true)
-    fi
-    if [ -z "$REPO_SLUG" ]; then
-      echo "No repo:<slug> tag found in session.yaml; skipping clone."
-      exit 0
-    fi
-    case "$REPO_SLUG" in
-      traffic-control) ORG="nigel-upstart" ;;
-      *) ORG="teamupstart" ;;
-    esac
-    echo "Cloning $ORG/$REPO_SLUG..."
-    git clone "git@github.com:$ORG/$REPO_SLUG.git" .
+  # Seeds the workspace by resolving the target repo from session.yaml /
+  # links.yaml (links `kind: repo`, then `kind: pr`, then `cwd:`), cloning it
+  # via SSH, and checking out session.branch. Runs outside the Codex sandbox
+  # so DNS / .git writes work. See `elixir/scripts/seed-workspace.sh` and
+  # SPEC.md §11 (Workspace Repo Seeding).
+  after_create: "$HOME/repos/nigel-upstart/sardine-run/elixir/scripts/seed-workspace.sh"
 agent:
   max_concurrent_agents: 10
   max_turns: 20
@@ -39,8 +25,10 @@ codex:
   command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
   approval_policy: never
   thread_sandbox: workspace-write
-  turn_sandbox_policy:
-    type: workspaceWrite
+  # turn_sandbox_policy intentionally unset: Elixir injects a default with
+  # writableRoots=[<workspace>], readOnlyAccess=fullAccess, networkAccess=false.
+  # Network is OFF inside the Codex turn; cloning happens in the after_create
+  # hook (host process). Enabling network in-sandbox is tracked separately.
 ---
 
 You are working on a Traffic Control session `{{ issue.identifier }}`.
@@ -61,18 +49,22 @@ The repos you may be working in:
 
 ## Workspace and repo setup
 
+Your workspace has already been seeded by the orchestrator (see SPEC.md §11):
+the target repo is cloned and `{{ issue.branch_name }}` (if set) is checked out.
+Codex runs with `cwd = <workspace>`, network access OFF, and write access
+restricted to the workspace.
+
 At the start of each session:
 
-1. Check whether the workspace already contains a cloned repo (`ls` and check for `.git`).
-2. If the workspace is empty, determine the correct repo from `{{ issue.title }}`, `{{ issue.description }}`, and `{{ issue.branch_name }}` using the table above, then clone it:
-   ```
-   git clone git@github.com:<org>/<repo>.git .
-   ```
-3. If the session has `{{ issue.branch_name }}` set, check it out after cloning:
-   ```
-   git fetch origin && git checkout {{ issue.branch_name }} 2>/dev/null || git checkout -b {{ issue.branch_name }}
-   ```
-4. Run any standard project setup (e.g., `npm install`, `mix setup`, `uv sync`) based on what you find in the repo root.
+1. Run any standard project setup (e.g. `npm install`, `mix setup`, `uv sync`) based
+   on what you find in the repo root.
+2. Confirm the seeded clone matches `{{ issue.title }}` / `{{ issue.branch_name }}`.
+   If `git config remote.origin.url` does not match the expected repo, stop
+   immediately and set `status: waiting` (`waiting_kind: external`) — do not
+   attempt to re-clone, since network is disabled inside the sandbox.
+3. If the workspace is empty (no `.git`), the seeder could not resolve a single
+   target repo from the session data. Set `status: waiting` with a note that
+   names what data is missing or ambiguous.
 
 {% if attempt %}
 Continuation context:

@@ -104,8 +104,7 @@ defmodule SardineRun.CoreTest do
 
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
-    assert Map.get(hooks, "after_create") =~ "git clone"
-    assert Map.get(hooks, "after_create") =~ "TRAFFIC_CONTROL_STATE_REPO"
+    assert Map.get(hooks, "after_create") =~ "seed-workspace.sh"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
