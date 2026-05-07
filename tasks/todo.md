@@ -27,9 +27,9 @@ Spec: `docs/plans/needs-attention-triage.md`
 
 ## Phase 3 — SR section slices (parallel)
 
-- [ ] **C3** Workspace git log section (sardine-run).
-- [ ] **C4** Filtered log-tail section (sardine-run).
-- [ ] **C5** notes.md + on-disk paths section (sardine-run).
+- [x] **C3** Workspace git log section (sardine-run). — `48be550` + `3d0985e`
+- [x] **C4** Filtered log-tail section (sardine-run). — `f808eed`
+- [x] **C5** notes.md + on-disk paths section (sardine-run). — `046dd11`
 
 ### Checkpoint 3
 - [ ] C3 + C4 + C5 merged. All five sections rendered for live issue.
@@ -37,8 +37,8 @@ Spec: `docs/plans/needs-attention-triage.md`
 
 ## Phase 4 — Drill-down + cross-link wiring (parallel)
 
-- [ ] **C6** Dashboard "View session" links on Running and Retrying
-      rows (sardine-run).
+- [x] **C6** Dashboard "View session" links on Running and Retrying
+      rows (sardine-run). — `d861930`
 - [ ] **D** SR populates `dashboard_url` on dispatch; clears on
       shutdown (sardine-run).
 - [ ] **E** TC "Open in Sardine Run" button on `/sessions/{id}`
