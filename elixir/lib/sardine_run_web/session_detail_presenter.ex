@@ -13,6 +13,9 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   @identifier_pattern ~r/\A[A-Za-z0-9._-]+\z/
   @git_log_max_count 10
   @git_log_timeout_ms 5_000
+  @log_tail_cap_bytes 5_242_880
+  @log_tail_max_lines 200
+  @log_tail_timeout_ms 5_000
 
   @typedoc "URL-supplied issue identifier after allow-list validation."
   @type session_identifier :: String.t()
@@ -29,12 +32,17 @@ defmodule SardineRunWeb.SessionDetailPresenter do
 
   @type git_log_section :: %{status: git_log_status(), lines: [String.t()]}
 
+  @type log_tail_status :: :ok | :no_entries | :empty | :unconfigured | :error
+
+  @type log_tail_section :: %{status: log_tail_status(), lines: [String.t()]}
+
   @type payload :: %{
           identifier: session_identifier(),
           status: String.t(),
           header: map(),
           live_state: map(),
-          git_log: git_log_section()
+          git_log: git_log_section(),
+          log_tail: log_tail_section()
         }
 
   @doc """
@@ -104,13 +112,15 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   defp build_payload(identifier, running, retry, filesystem) do
     workspace_path = from_first(:workspace_path, running, retry)
     workspace_root = Map.get(filesystem, :workspace_root)
+    log_file = Map.get(filesystem, :log_file)
 
     %{
       identifier: identifier,
       status: status(running, retry),
       header: header(identifier, running, retry),
       live_state: live_state(running, retry),
-      git_log: git_log_section(workspace_path, workspace_root)
+      git_log: git_log_section(workspace_path, workspace_root),
+      log_tail: log_tail_section(identifier, log_file)
     }
   end
 
@@ -174,6 +184,63 @@ defmodule SardineRunWeb.SessionDetailPresenter do
 
       _other ->
         %{status: :empty, lines: []}
+    end
+  end
+
+  @doc """
+  Tail the application log file and filter lines by the validated session
+  identifier.
+
+  - Reads up to `#{@log_tail_cap_bytes}` bytes from the end of `log_file`
+    via `tail -c`, then keeps lines that contain `identifier` as a
+    substring (case-sensitive).
+  - Returns the last `#{@log_tail_max_lines}` matching lines in oldest-first
+    order (newest line last).
+  - A 5-second hard timeout applies; on timeout the section degrades to
+    `:error`.
+  - `:missing_file` when the log file does not exist.
+  - `:no_entries` when the file exists but no lines match.
+  - `:ok` when at least one matching line is found.
+  - `:error` on tail failure or timeout.
+  """
+  @spec log_tail_section(session_identifier(), String.t() | nil) :: log_tail_section()
+  def log_tail_section(_identifier, nil), do: %{status: :unconfigured, lines: []}
+
+  def log_tail_section(identifier, log_file) when is_binary(log_file) do
+    case File.stat(log_file) do
+      {:error, :enoent} ->
+        %{status: :empty, lines: []}
+
+      {:error, _reason} ->
+        %{status: :error, lines: []}
+
+      {:ok, _stat} ->
+        run_log_tail(identifier, log_file)
+    end
+  end
+
+  defp run_log_tail(identifier, log_file) do
+    task =
+      Task.async(fn ->
+        System.cmd("tail", ["-c", to_string(@log_tail_cap_bytes), log_file], stderr_to_stdout: true)
+      end)
+
+    case Task.yield(task, @log_tail_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {output, 0}} ->
+        lines =
+          output
+          |> String.split("\n", trim: true)
+          |> Enum.filter(&String.contains?(&1, identifier))
+          |> Enum.take(-@log_tail_max_lines)
+
+        if lines == [] do
+          %{status: :no_entries, lines: []}
+        else
+          %{status: :ok, lines: lines}
+        end
+
+      _other ->
+        %{status: :error, lines: []}
     end
   end
 

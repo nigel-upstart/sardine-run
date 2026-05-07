@@ -303,6 +303,127 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
     end
   end
 
+  describe "payload/3 — filtered log-tail section" do
+    setup do
+      tmp_root =
+        Path.join(
+          System.tmp_dir!(),
+          "sr-presenter-log-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp_root)
+      on_exit(fn -> File.rm_rf!(tmp_root) end)
+
+      {:ok, root: tmp_root}
+    end
+
+    test "returns matching lines newest-at-bottom for a populated log", %{root: root} do
+      log_path = Path.join(root, "sardine-run.log")
+
+      lines =
+        for i <- 1..20 do
+          if rem(i, 3) == 0 do
+            "ts=#{i} level=info msg=ignore-me other-id=ZZZ-99"
+          else
+            "ts=#{i} level=info msg=match issue_identifier=UPS-LOG seq=#{i}"
+          end
+        end
+
+      File.write!(log_path, Enum.join(lines, "\n") <> "\n")
+
+      snapshot = log_running_snapshot("UPS-LOG")
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload(
+                 "UPS-LOG",
+                 snapshot,
+                 %{log_file: log_path}
+               )
+
+      assert payload.log_tail.status == :ok
+      assert Enum.all?(payload.log_tail.lines, &String.contains?(&1, "UPS-LOG"))
+      refute Enum.any?(payload.log_tail.lines, &String.contains?(&1, "ZZZ-99"))
+
+      [first | _] = payload.log_tail.lines
+      last = List.last(payload.log_tail.lines)
+      assert String.contains?(first, "seq=1")
+      assert String.contains?(last, "seq=20") or String.contains?(last, "seq=19")
+    end
+
+    test "caps the result at 200 matching lines", %{root: root} do
+      log_path = Path.join(root, "sardine-run.log")
+
+      lines = for i <- 1..500, do: "msg=ping issue_identifier=UPS-LOG seq=#{i}"
+      File.write!(log_path, Enum.join(lines, "\n") <> "\n")
+
+      snapshot = log_running_snapshot("UPS-LOG")
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload(
+                 "UPS-LOG",
+                 snapshot,
+                 %{log_file: log_path}
+               )
+
+      assert payload.log_tail.status == :ok
+      assert length(payload.log_tail.lines) == 200
+      assert List.last(payload.log_tail.lines) =~ "seq=500"
+    end
+
+    test "returns :empty for a log file that does not exist", %{root: root} do
+      missing = Path.join(root, "no-such-log")
+
+      snapshot = log_running_snapshot("UPS-LOG")
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload(
+                 "UPS-LOG",
+                 snapshot,
+                 %{log_file: missing}
+               )
+
+      assert payload.log_tail.status == :empty
+      assert payload.log_tail.lines == []
+    end
+
+    test "returns :unconfigured when filesystem has no log_file" do
+      snapshot = log_running_snapshot("UPS-LOG")
+
+      assert {:ok, payload} = SessionDetailPresenter.payload("UPS-LOG", snapshot, %{})
+      assert payload.log_tail.status == :unconfigured
+      assert payload.log_tail.lines == []
+    end
+
+    defp log_running_snapshot(identifier) do
+      now = DateTime.utc_now()
+      started_at = DateTime.add(now, -10, :second)
+
+      %{
+        running: [
+          %{
+            issue_id: "id-#{identifier}",
+            identifier: identifier,
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: nil,
+            session_id: "sess-#{identifier}",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 0,
+            started_at: started_at,
+            last_codex_timestamp: now,
+            last_codex_message: nil,
+            last_codex_event: nil,
+            runtime_seconds: 10
+          }
+        ],
+        retrying: []
+      }
+    end
+  end
+
   describe "payload/3 — running takes precedence over retrying" do
     test "if the identifier appears in both running and retrying, status is running" do
       now = DateTime.utc_now()

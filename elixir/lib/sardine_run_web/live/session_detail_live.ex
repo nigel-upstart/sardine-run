@@ -178,6 +178,28 @@ defmodule SardineRunWeb.SessionDetailLive do
                 <p class="empty-state">No workspace configured for this session.</p>
             <% end %>
           </section>
+
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Recent log entries</h2>
+                <p class="section-copy">Last matching lines from the application log for this session.</p>
+              </div>
+            </div>
+
+            <%= case payload.log_tail.status do %>
+              <% :ok -> %>
+                <pre class="code-panel"><%= Enum.join(payload.log_tail.lines, "\n") %></pre>
+              <% :empty -> %>
+                <p class="empty-state">No log entries — log file not present.</p>
+              <% :no_entries -> %>
+                <p class="empty-state">No log entries.</p>
+              <% :unconfigured -> %>
+                <p class="empty-state">No log entries.</p>
+              <% :error -> %>
+                <p class="empty-state">No log entries.</p>
+            <% end %>
+          </section>
         </section>
     <% end %>
     """
@@ -192,8 +214,14 @@ defmodule SardineRunWeb.SessionDetailLive do
 
   defp filesystem_context do
     case SardineRun.Config.settings() do
-      {:ok, settings} -> %{workspace_root: settings.workspace.root}
-      _ -> %{}
+      {:ok, settings} ->
+        %{
+          workspace_root: settings.workspace.root,
+          log_file: SardineRun.LogFile.default_log_file()
+        }
+
+      _ ->
+        %{}
     end
   end
 
