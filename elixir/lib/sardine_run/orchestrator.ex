@@ -40,14 +40,35 @@ defmodule SardineRun.Orchestrator do
       claimed: MapSet.new(),
       retry_attempts: %{},
       codex_totals: nil,
-      codex_rate_limits: nil
+      codex_rate_limits: nil,
+      # Monotonic-ms timestamp until which dispatch is paused (Codex usage cap).
+      codex_dispatch_paused_until_ms: nil,
+      codex_dispatch_pause_reason: nil
     ]
   end
+
+  # Default dispatch pause when Codex tells us we're rate-limited but
+  # we cannot extract an explicit reset timestamp from the stream.
+  @default_dispatch_pause_ms 30 * 60 * 1_000
+  # Hard ceiling so a runaway detector never pauses dispatch indefinitely.
+  @max_dispatch_pause_ms 4 * 60 * 60 * 1_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  @doc """
+  Reports that Codex is rate-limiting the local user. Pauses new agent
+  dispatches until `reset_at` (a `DateTime`), or for a default window when
+  the reset time is unknown. Idempotent; the longest pause wins.
+  """
+  @spec report_rate_limit(atom(), DateTime.t() | nil) :: :ok
+  def report_rate_limit(reason \\ :codex_rate_limit, reset_at \\ nil)
+      when is_atom(reason) do
+    send(__MODULE__, {:codex_rate_limited, reason, reset_at})
+    :ok
   end
 
   @impl true
@@ -208,6 +229,34 @@ defmodule SardineRun.Orchestrator do
 
   def handle_info({:codex_worker_update, _issue_id, _update}, state), do: {:noreply, state}
 
+  def handle_info({:codex_rate_limited, reason, reset_at}, state) do
+    state = apply_codex_dispatch_pause(state, reason, reset_at)
+    {:noreply, state}
+  end
+
+  def handle_info(:codex_dispatch_pause_expired, state) do
+    case state.codex_dispatch_paused_until_ms do
+      nil ->
+        {:noreply, state}
+
+      pause_until ->
+        if System.monotonic_time(:millisecond) >= pause_until do
+          Logger.warning("Codex dispatch pause expired; resuming polling")
+
+          state = %{
+            state
+            | codex_dispatch_paused_until_ms: nil,
+              codex_dispatch_pause_reason: nil
+          }
+
+          send(self(), :run_poll_cycle)
+          {:noreply, state}
+        else
+          {:noreply, state}
+        end
+    end
+  end
+
   def handle_info({:retry_issue, issue_id, retry_token}, state) do
     result =
       case pop_retry_attempt_state(state, issue_id, retry_token) do
@@ -229,6 +278,17 @@ defmodule SardineRun.Orchestrator do
   defp maybe_dispatch(%State{} = state) do
     state = reconcile_running_issues(state)
 
+    cond do
+      dispatch_paused?(state) ->
+        log_dispatch_pause(state)
+        state
+
+      true ->
+        do_maybe_dispatch(state)
+    end
+  end
+
+  defp do_maybe_dispatch(%State{} = state) do
     with :ok <- Config.validate!(),
          {:ok, issues} <- Tracker.fetch_candidate_issues(),
          true <- available_slots(state) > 0 do
@@ -773,6 +833,67 @@ defmodule SardineRun.Orchestrator do
       | completed: MapSet.put(state.completed, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+  end
+
+  defp dispatch_paused?(%State{codex_dispatch_paused_until_ms: nil}), do: false
+
+  defp dispatch_paused?(%State{codex_dispatch_paused_until_ms: until_ms}) do
+    System.monotonic_time(:millisecond) < until_ms
+  end
+
+  defp log_dispatch_pause(%State{
+         codex_dispatch_paused_until_ms: until_ms,
+         codex_dispatch_pause_reason: reason
+       }) do
+    remaining_ms = max(0, until_ms - System.monotonic_time(:millisecond))
+
+    Logger.info(
+      "Skipping dispatch: Codex rate-limit pause active reason=#{inspect(reason)} resumes_in_ms=#{remaining_ms}"
+    )
+  end
+
+  defp apply_codex_dispatch_pause(%State{} = state, reason, reset_at) do
+    desired_pause_ms =
+      case reset_at do
+        %DateTime{} = dt ->
+          DateTime.diff(dt, DateTime.utc_now(), :millisecond)
+
+        _ ->
+          @default_dispatch_pause_ms
+      end
+
+    desired_pause_ms = desired_pause_ms |> max(0) |> min(@max_dispatch_pause_ms)
+    now_ms = System.monotonic_time(:millisecond)
+    new_until = now_ms + desired_pause_ms
+    current_until = state.codex_dispatch_paused_until_ms
+
+    extends_pause? =
+      is_nil(current_until) or new_until > current_until
+
+    cond do
+      desired_pause_ms <= 0 ->
+        state
+
+      not extends_pause? ->
+        state
+
+      true ->
+        Logger.warning(
+          "Codex rate limit detected (#{reason}); pausing dispatch for #{div(desired_pause_ms, 1_000)}s" <>
+            case reset_at do
+              %DateTime{} = dt -> " (until #{DateTime.to_iso8601(dt)})"
+              _ -> ""
+            end
+        )
+
+        Process.send_after(self(), :codex_dispatch_pause_expired, desired_pause_ms)
+
+        %{
+          state
+          | codex_dispatch_paused_until_ms: new_until,
+            codex_dispatch_pause_reason: reason
+        }
+    end
   end
 
   defp handle_after_create_failure(

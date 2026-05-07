@@ -1557,6 +1557,61 @@ defmodule SardineRun.OrchestratorStatusTest do
     refute rendered =~ "Timestamp:"
   end
 
+  test "codex_rate_limited message pauses dispatch and the pause expires" do
+    orchestrator_name = Module.concat(__MODULE__, :RateLimitOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    # Initial state: dispatch not paused.
+    refute :sys.get_state(pid).codex_dispatch_paused_until_ms
+
+    send(pid, {:codex_rate_limited, :codex_websocket_403, nil})
+
+    # Wait for handle_info to take effect.
+    state =
+      wait_for_state(pid, fn s ->
+        is_integer(s.codex_dispatch_paused_until_ms)
+      end)
+
+    assert state.codex_dispatch_pause_reason == :codex_websocket_403
+    assert state.codex_dispatch_paused_until_ms > System.monotonic_time(:millisecond)
+
+    # Manually fast-forward by sending the expiry event after rewinding
+    # the paused-until past `now`.
+    :sys.replace_state(pid, fn s ->
+      %{s | codex_dispatch_paused_until_ms: System.monotonic_time(:millisecond) - 1}
+    end)
+
+    send(pid, :codex_dispatch_pause_expired)
+
+    state = wait_for_state(pid, fn s -> is_nil(s.codex_dispatch_paused_until_ms) end)
+    assert is_nil(state.codex_dispatch_pause_reason)
+  end
+
+  defp wait_for_state(pid, predicate, timeout_ms \\ 500) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_state(pid, predicate, deadline)
+  end
+
+  defp do_wait_for_state(pid, predicate, deadline) do
+    state = :sys.get_state(pid)
+
+    cond do
+      predicate.(state) ->
+        state
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("orchestrator state predicate not satisfied: #{inspect(state)}")
+
+      true ->
+        Process.sleep(10)
+        do_wait_for_state(pid, predicate, deadline)
+    end
+  end
+
   defp wait_for_snapshot(pid, predicate, timeout_ms \\ 200) when is_function(predicate, 1) do
     deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
     do_wait_for_snapshot(pid, predicate, deadline_ms)

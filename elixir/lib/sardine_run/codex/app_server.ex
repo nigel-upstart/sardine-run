@@ -976,7 +976,43 @@ defmodule SardineRun.Codex.AppServer do
       else
         Logger.debug("Codex #{stream_label} output: #{text}")
       end
+
+      maybe_report_rate_limit(text)
     end
+  end
+
+  # Codex rate-limit signals that surface in the streamed (non-JSON) output.
+  # We deliberately ignore single 403s in case of a transient hiccup, but a
+  # message containing "usage limit" or "Try again at" is unambiguous; for the
+  # 403 case we still notify because the cluster is the only signal we get
+  # before every subsequent turn fast-fails.
+  @rate_limit_patterns [
+    ~r/usage limit/i,
+    ~r/Try again at\s+([^\n]+)/i,
+    ~r/HTTP error: 403 Forbidden.*chatgpt\.com\/backend-api\/codex/i
+  ]
+
+  defp maybe_report_rate_limit(text) when is_binary(text) do
+    if Enum.any?(@rate_limit_patterns, &Regex.match?(&1, text)) do
+      reason =
+        cond do
+          Regex.match?(~r/usage limit/i, text) -> :codex_usage_limit
+          Regex.match?(~r/Try again at/i, text) -> :codex_usage_limit
+          true -> :codex_websocket_403
+        end
+
+      try do
+        # Pass nil reset_at so the orchestrator falls back to its default
+        # pause window. Parsing the human-formatted "Try again at ..." string
+        # is not worth the brittleness; the default window is conservative.
+        send(SardineRun.Orchestrator, {:codex_rate_limited, reason, nil})
+      rescue
+        # Orchestrator may not be running (tests, early startup) — best-effort.
+        ArgumentError -> :ok
+      end
+    end
+
+    :ok
   end
 
   defp protocol_message_candidate?(data) do
