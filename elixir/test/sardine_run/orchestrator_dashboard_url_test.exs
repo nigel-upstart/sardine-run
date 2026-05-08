@@ -130,4 +130,81 @@ defmodule SardineRun.OrchestratorDashboardUrlTest do
       refute get_in(parsed, ["sardine_run", "dashboard_url"]) == "http://127.0.0.1:4000/session/noserver-1"
     end
   end
+
+  describe "orchestrator :DOWN handler clears dashboard_url" do
+    test "agent process termination clears dashboard_url in session.yaml", %{state_repo: repo} do
+      issue_id = "MT-PROOF"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "traffic_control",
+        tracker_state_repo: repo,
+        server_port: 4000,
+        server_host: "127.0.0.1"
+      )
+
+      session_dir = Path.dirname(session_path(repo, issue_id))
+      File.mkdir_p!(session_dir)
+
+      File.write!(
+        session_path(repo, issue_id),
+        """
+        id: #{issue_id}
+        status: active
+        sardine_run:
+          dashboard_url: "http://127.0.0.1:4000/session/#{issue_id}"
+          worker_host: worker-1
+        """
+      )
+
+      # Sanity: pre-condition holds.
+      pre = read_yaml!(session_path(repo, issue_id))
+
+      assert get_in(pre, ["sardine_run", "dashboard_url"]) ==
+               "http://127.0.0.1:4000/session/#{issue_id}"
+
+      orchestrator_name = Module.concat(__MODULE__, :DownClearOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: Process.exit(pid, :normal)
+      end)
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: issue_id,
+        title: "Proof of clear-on-down",
+        state: "In Progress"
+      }
+
+      ref = make_ref()
+      now = DateTime.utc_now()
+
+      running_entry = %{
+        pid: self(),
+        ref: ref,
+        identifier: issue.identifier,
+        issue: issue,
+        session_id: "thread-proof",
+        turn_count: 1,
+        last_codex_message: nil,
+        last_codex_timestamp: now,
+        last_codex_event: nil,
+        started_at: now,
+        worker_host: "worker-1",
+        workspace_path: "/tmp/ignored"
+      }
+
+      :sys.replace_state(pid, fn state ->
+        Map.put(state, :running, Map.put(state.running, issue_id, running_entry))
+      end)
+
+      send(pid, {:DOWN, ref, :process, self(), :normal})
+      _ = :sys.get_state(pid)
+
+      post = read_yaml!(session_path(repo, issue_id))
+      assert is_nil(get_in(post, ["sardine_run", "dashboard_url"]))
+      # Sibling fields preserved.
+      assert get_in(post, ["sardine_run", "worker_host"]) == "worker-1"
+    end
+  end
 end
