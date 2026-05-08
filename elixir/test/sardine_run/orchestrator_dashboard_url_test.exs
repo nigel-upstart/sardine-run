@@ -131,6 +131,67 @@ defmodule SardineRun.OrchestratorDashboardUrlTest do
     end
   end
 
+  describe "Orchestrator.write_session_dashboard_url/2 (dispatch path)" do
+    test "writes URL constructed from current Config", %{state_repo: repo} do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "traffic_control",
+        tracker_state_repo: repo,
+        server_port: 4567,
+        server_host: "127.0.0.1"
+      )
+
+      File.mkdir_p!(Path.dirname(session_path(repo, "DISP-1")))
+      File.write!(session_path(repo, "DISP-1"), "id: DISP-1\nstatus: active\n")
+
+      assert :ok = Orchestrator.write_session_dashboard_url("DISP-1", "DISP-1")
+
+      parsed = read_yaml!(session_path(repo, "DISP-1"))
+
+      assert get_in(parsed, ["sardine_run", "dashboard_url"]) ==
+               "http://127.0.0.1:4567/session/DISP-1"
+    end
+
+    test "writes nil when server.port is unset", %{state_repo: repo} do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "traffic_control",
+        tracker_state_repo: repo,
+        server_port: nil,
+        server_host: nil
+      )
+
+      File.mkdir_p!(Path.dirname(session_path(repo, "DISP-NIL")))
+      File.write!(session_path(repo, "DISP-NIL"), "id: DISP-NIL\nstatus: active\n")
+
+      assert :ok = Orchestrator.write_session_dashboard_url("DISP-NIL", "DISP-NIL")
+
+      parsed = read_yaml!(session_path(repo, "DISP-NIL"))
+      assert is_nil(get_in(parsed, ["sardine_run", "dashboard_url"]))
+    end
+
+    test "rebinds wildcard host (0.0.0.0) to 127.0.0.1 in the URL", %{state_repo: repo} do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "traffic_control",
+        tracker_state_repo: repo,
+        server_port: 4000,
+        server_host: "0.0.0.0"
+      )
+
+      File.mkdir_p!(Path.dirname(session_path(repo, "DISP-WILD")))
+      File.write!(session_path(repo, "DISP-WILD"), "id: DISP-WILD\nstatus: active\n")
+
+      assert :ok = Orchestrator.write_session_dashboard_url("DISP-WILD", "DISP-WILD")
+
+      parsed = read_yaml!(session_path(repo, "DISP-WILD"))
+
+      assert get_in(parsed, ["sardine_run", "dashboard_url"]) ==
+               "http://127.0.0.1:4000/session/DISP-WILD"
+    end
+
+    test "returns {:error, _} for malformed issue_id without crashing", %{state_repo: _repo} do
+      assert {:error, _reason} = Orchestrator.write_session_dashboard_url("../etc", "../etc")
+    end
+  end
+
   describe "orchestrator :DOWN handler clears dashboard_url" do
     test "agent process termination clears dashboard_url in session.yaml", %{state_repo: repo} do
       issue_id = "MT-PROOF"

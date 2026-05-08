@@ -12,12 +12,14 @@ defmodule SardineRunWeb.SessionDetailLive do
   alias SardineRunWeb.{Endpoint, ObservabilityPubSub, SessionDetailPresenter}
 
   @runtime_tick_ms 1_000
+  @filesystem_tick_ms 10_000
 
   @impl true
   def mount(%{"issue_identifier" => raw_identifier}, _session, socket) do
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
       schedule_runtime_tick()
+      schedule_filesystem_tick()
     end
 
     {:ok,
@@ -35,6 +37,16 @@ defmodule SardineRunWeb.SessionDetailLive do
 
   @impl true
   def handle_info(:observability_updated, socket) do
+    {:noreply,
+     socket
+     |> assign(:now, DateTime.utc_now())
+     |> refresh_live_state()}
+  end
+
+  @impl true
+  def handle_info(:filesystem_tick, socket) do
+    schedule_filesystem_tick()
+
     {:noreply,
      socket
      |> assign(:now, DateTime.utc_now())
@@ -294,6 +306,40 @@ defmodule SardineRunWeb.SessionDetailLive do
 
   defp schedule_runtime_tick do
     Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
+  end
+
+  defp schedule_filesystem_tick do
+    Process.send_after(self(), :filesystem_tick, @filesystem_tick_ms)
+  end
+
+  defp refresh_live_state(socket) do
+    snapshot = snapshot()
+
+    case SessionDetailPresenter.live_payload(socket.assigns.raw_identifier, snapshot) do
+      {:ok, live_only} ->
+        new_result =
+          case socket.assigns[:result] do
+            {:ok, prev} ->
+              {:ok, Map.merge(prev, live_only)}
+
+            _ ->
+              {:ok,
+               Map.merge(
+                 %{
+                   git_log: %{status: :unconfigured, lines: []},
+                   log_tail: %{status: :unconfigured, lines: []},
+                   notes: %{status: :memory_tracker, content: nil},
+                   paths: :hidden
+                 },
+                 live_only
+               )}
+          end
+
+        assign(socket, :result, new_result)
+
+      {:error, _reason} = err ->
+        assign(socket, :result, err)
+    end
   end
 
   defp status_badge_class("running"), do: "status-badge status-badge-live"

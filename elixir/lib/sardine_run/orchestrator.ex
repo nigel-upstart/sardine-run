@@ -1860,8 +1860,6 @@ defmodule SardineRun.Orchestrator do
     end
   end
 
-  defp dashboard_url_host(host) when host in ["0.0.0.0", "::", "[::]", ""], do: "127.0.0.1"
-
   defp dashboard_url_host(host) when is_binary(host) do
     trimmed = String.trim(host)
 
@@ -1880,15 +1878,27 @@ defmodule SardineRun.Orchestrator do
     end
   end
 
-  defp write_session_dashboard_url(issue_id, issue_identifier) do
+  @doc """
+  Compute and write the per-session dashboard URL into the session's
+  `runtime.sardine_run.dashboard_url` field. Public for testability of
+  the URL-construction + SessionWriter integration; the orchestrator
+  calls this on dispatch.
+
+  Returns `:ok` on success and `{:error, reason}` when the underlying
+  `SessionWriter.update_runtime/2` fails. Logger.debug is used for
+  failures since this is a best-effort write.
+  """
+  @spec write_session_dashboard_url(String.t(), String.t()) :: :ok | {:error, term()}
+  def write_session_dashboard_url(issue_id, issue_identifier) do
     url = session_dashboard_url(issue_identifier)
 
     case SessionWriter.update_runtime(issue_id, %{dashboard_url: url}) do
       :ok ->
         :ok
 
-      {:error, reason} ->
+      {:error, reason} = err ->
         Logger.debug("Could not write dashboard_url for issue_id=#{issue_id}: #{inspect(reason)}")
+        err
     end
   end
 

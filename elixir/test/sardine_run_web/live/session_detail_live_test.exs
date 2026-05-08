@@ -251,6 +251,92 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
       assert html =~ "Session notes"
     end
 
+    test "preserves filesystem-derived sections across :observability_updated broadcasts" do
+      workspace_root =
+        Path.join(System.tmp_dir!(), "sr-live-pres-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(workspace_root)
+      on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+      workspace = Path.join(workspace_root, "UPS-PRESERVE")
+      File.mkdir_p!(workspace)
+
+      System.cmd("git", ["-C", workspace, "init", "--initial-branch=main"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "config", "user.email", "t@example.com"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "config", "user.name", "T"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "config", "commit.gpgsign", "false"], stderr_to_stdout: true)
+
+      File.write!(Path.join(workspace, "a.txt"), "x\n")
+      System.cmd("git", ["-C", workspace, "add", "a.txt"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "commit", "-m", "preserved-commit-line"], stderr_to_stdout: true)
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      now = DateTime.utc_now()
+
+      snapshot_v1 = %{
+        running: [
+          %{
+            issue_id: "id-preserve",
+            identifier: "UPS-PRESERVE",
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: workspace,
+            session_id: "thread-preserve",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 1,
+            started_at: DateTime.add(now, -1, :second),
+            last_codex_timestamp: now,
+            last_codex_message: %{"type" => "agent_message", "message" => "v1-msg"},
+            last_codex_event: "agent_message",
+            runtime_seconds: 1
+          }
+        ],
+        retrying: []
+      }
+
+      orchestrator_name = start_static_orchestrator!(snapshot_v1)
+      orchestrator_pid = Process.whereis(orchestrator_name)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+      {:ok, view, html} = live(build_conn(), "/session/UPS-PRESERVE")
+      assert html =~ "preserved-commit-line"
+      assert html =~ "v1-msg"
+
+      File.rm_rf!(workspace)
+
+      snapshot_v2 =
+        put_in(
+          snapshot_v1.running,
+          [
+            put_in(hd(snapshot_v1.running).last_codex_message, %{
+              "type" => "agent_message",
+              "message" => "v2-msg"
+            })
+          ]
+        )
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        Keyword.put(state, :snapshot, snapshot_v2)
+      end)
+
+      send(view.pid, :observability_updated)
+      _ = :sys.get_state(view.pid)
+
+      html_after = render(view)
+      assert html_after =~ "v2-msg"
+
+      assert html_after =~ "preserved-commit-line",
+             "git log section should be preserved across observability broadcasts"
+    end
+
     test "re-renders when an :observability_updated broadcast fires" do
       snapshot_v1 = build_running_snapshot("UPS-PUBSUB", "first message")
 

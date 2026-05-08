@@ -16,6 +16,7 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   @log_tail_cap_bytes 5_242_880
   @log_tail_max_lines 200
   @log_tail_timeout_ms 5_000
+  @notes_max_bytes 65_536
 
   @typedoc "URL-supplied issue identifier after allow-list validation."
   @type session_identifier :: String.t()
@@ -107,6 +108,47 @@ defmodule SardineRunWeb.SessionDetailPresenter do
 
   def payload(_identifier, _snapshot, _filesystem), do: {:error, :not_found}
 
+  @typedoc "Subset of payload/3 that depends only on the orchestrator snapshot."
+  @type live_only :: %{
+          identifier: session_identifier(),
+          status: String.t(),
+          header: map(),
+          live_state: map()
+        }
+
+  @doc """
+  Cheap snapshot-only projection of the session detail payload.
+
+  Returns just the live-state slice — no filesystem reads, no shell-outs.
+  Use this for high-frequency refreshes (e.g. orchestrator heartbeat
+  broadcasts) where re-running git/tail/file reads on every tick is
+  prohibitive. Pair with `payload/3` on a slower cadence to refresh the
+  filesystem-derived sections.
+
+  Note: `header.workspace_path` reflects only the orchestrator entry's
+  `workspace_path`. The `<workspace_root>/<identifier>` fallback used by
+  `payload/3` is not applied here because it requires a filesystem
+  context.
+  """
+  @spec live_payload(term(), map()) ::
+          {:ok, live_only()} | {:error, :not_found | :invalid_identifier}
+  def live_payload(identifier, snapshot) when is_map(snapshot) do
+    with {:ok, identifier} <- validate_identifier(identifier),
+         {:ok, running, retry} <- find_entries(identifier, snapshot) do
+      workspace_path = from_first(:workspace_path, running, retry)
+
+      {:ok,
+       %{
+         identifier: identifier,
+         status: status(running, retry),
+         header: header(identifier, running, retry, workspace_path),
+         live_state: live_state(running, retry)
+       }}
+    end
+  end
+
+  def live_payload(_identifier, _snapshot), do: {:error, :not_found}
+
   defp find_entries(identifier, snapshot) do
     running = Map.get(snapshot, :running, []) |> Enum.find(&match_identifier?(&1, identifier))
     retry = Map.get(snapshot, :retrying, []) |> Enum.find(&match_identifier?(&1, identifier))
@@ -125,15 +167,19 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   defp match_identifier?(_entry, _identifier), do: false
 
   defp build_payload(identifier, running, retry, filesystem) do
-    workspace_path = from_first(:workspace_path, running, retry)
     workspace_root = Map.get(filesystem, :workspace_root)
+
+    workspace_path =
+      from_first(:workspace_path, running, retry) ||
+        workspace_path_fallback(identifier, workspace_root)
+
     log_file = Map.get(filesystem, :log_file)
     state_repo = Map.get(filesystem, :state_repo)
 
     %{
       identifier: identifier,
       status: status(running, retry),
-      header: header(identifier, running, retry),
+      header: header(identifier, running, retry, workspace_path),
       live_state: live_state(running, retry),
       git_log: git_log_section(workspace_path, workspace_root),
       log_tail: log_tail_section(identifier, log_file),
@@ -141,6 +187,11 @@ defmodule SardineRunWeb.SessionDetailPresenter do
       paths: paths_section(identifier, state_repo, workspace_path)
     }
   end
+
+  defp workspace_path_fallback(_identifier, nil), do: nil
+
+  defp workspace_path_fallback(identifier, workspace_root) when is_binary(workspace_root),
+    do: Path.join(workspace_root, identifier)
 
   @doc """
   Run `git log --pretty=format:"%h %s" --max-count=10` against the
@@ -275,10 +326,27 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   def notes_section(identifier, state_repo) when is_binary(state_repo) do
     notes_path = Path.join([state_repo, "sessions", identifier, "notes.md"])
 
-    case File.read(notes_path) do
+    case read_capped(notes_path, @notes_max_bytes) do
       {:ok, content} -> %{status: :ok, content: content}
-      {:error, :enoent} -> %{status: :missing, content: nil}
-      {:error, _reason} -> %{status: :missing, content: nil}
+      :missing -> %{status: :missing, content: nil}
+    end
+  end
+
+  defp read_capped(path, max_bytes) do
+    case File.open(path, [:read, :binary]) do
+      {:ok, fd} ->
+        try do
+          case IO.binread(fd, max_bytes) do
+            :eof -> {:ok, ""}
+            {:error, _reason} -> :missing
+            data when is_binary(data) -> {:ok, data}
+          end
+        after
+          File.close(fd)
+        end
+
+      {:error, _reason} ->
+        :missing
     end
   end
 
@@ -305,12 +373,12 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   defp status(running, _retry) when is_map(running), do: "running"
   defp status(_running, retry) when is_map(retry), do: "retrying"
 
-  defp header(identifier, running, retry) do
+  defp header(identifier, running, retry, workspace_path) do
     %{
       identifier: identifier,
       issue_id: (running && running.issue_id) || (retry && retry.issue_id),
       worker_host: from_first(:worker_host, running, retry),
-      workspace_path: from_first(:workspace_path, running, retry)
+      workspace_path: workspace_path
     }
   end
 

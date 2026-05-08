@@ -227,7 +227,34 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
       assert payload.git_log.lines == []
     end
 
-    test "returns :unconfigured when the entry has no workspace_path" do
+    test "falls back to <workspace_root>/<identifier> when entry has no workspace_path",
+         %{root: root} do
+      workspace = Path.join(root, "UPS-FALLBACK")
+      init_git_repo!(workspace)
+      commit_file!(workspace, "a.txt", "fallback commit")
+
+      now = DateTime.utc_now()
+
+      running_entry =
+        running_entry("UPS-FALLBACK", DateTime.add(now, -1, :second), now)
+        |> Map.put(:workspace_path, nil)
+
+      snapshot = %{running: [running_entry], retrying: []}
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload(
+                 "UPS-FALLBACK",
+                 snapshot,
+                 %{workspace_root: root}
+               )
+
+      assert payload.git_log.status == :ok
+      assert Enum.any?(payload.git_log.lines, &String.contains?(&1, "fallback commit"))
+
+      assert payload.header.workspace_path == workspace
+    end
+
+    test "returns :unconfigured when neither entry nor workspace_root is available" do
       now = DateTime.utc_now()
 
       running_entry =
@@ -236,8 +263,7 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
 
       snapshot = %{running: [running_entry], retrying: []}
 
-      assert {:ok, payload} =
-               SessionDetailPresenter.payload("UPS-NOWS", snapshot, %{workspace_root: "/tmp"})
+      assert {:ok, payload} = SessionDetailPresenter.payload("UPS-NOWS", snapshot, %{})
 
       assert payload.git_log.status == :unconfigured
       assert payload.git_log.lines == []
@@ -465,6 +491,22 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
       assert payload.notes.content == nil
     end
 
+    test "caps the notes content at 64 KiB", %{
+      state_repo: state_repo,
+      session_dir: session_dir
+    } do
+      huge = String.duplicate("x", 200_000)
+      File.write!(Path.join(session_dir, "notes.md"), huge)
+
+      snapshot = notes_running_snapshot("UPS-NOTES")
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-NOTES", snapshot, %{state_repo: state_repo})
+
+      assert payload.notes.status == :ok
+      assert byte_size(payload.notes.content) == 65_536
+    end
+
     test "returns :memory_tracker when state_repo is not in filesystem" do
       snapshot = notes_running_snapshot("UPS-NOTES")
 
@@ -558,6 +600,48 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
         ],
         retrying: []
       }
+    end
+  end
+
+  describe "live_payload/2 — cheap snapshot-only projection" do
+    test "returns identifier, status, header, live_state but no filesystem keys" do
+      now = DateTime.utc_now()
+      started_at = DateTime.add(now, -10, :second)
+
+      running_entry = %{
+        issue_id: "id-live",
+        identifier: "UPS-LIVE",
+        state: "In Progress",
+        worker_host: "worker-1",
+        workspace_path: "/tmp/ws",
+        session_id: "sess-live",
+        codex_app_server_pid: nil,
+        codex_input_tokens: 1,
+        codex_output_tokens: 2,
+        codex_total_tokens: 3,
+        turn_count: 5,
+        started_at: started_at,
+        last_codex_timestamp: now,
+        last_codex_message: nil,
+        last_codex_event: nil,
+        runtime_seconds: 10
+      }
+
+      snapshot = %{running: [running_entry], retrying: []}
+
+      assert {:ok, live} = SessionDetailPresenter.live_payload("UPS-LIVE", snapshot)
+
+      assert Map.keys(live) |> Enum.sort() == [:header, :identifier, :live_state, :status]
+      assert live.live_state.session_id == "sess-live"
+      assert live.live_state.turn_count == 5
+    end
+
+    test "returns :error tuples for unknown / invalid identifiers" do
+      assert {:error, :not_found} =
+               SessionDetailPresenter.live_payload("UPS-NOPE", %{running: [], retrying: []})
+
+      assert {:error, :invalid_identifier} =
+               SessionDetailPresenter.live_payload("../etc", %{running: [], retrying: []})
     end
   end
 
