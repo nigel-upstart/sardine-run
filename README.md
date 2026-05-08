@@ -49,7 +49,7 @@ mise exec -- ./bin/sardine-run \
 ```
 
 The escript binary is `sardine-run`. By default it reads `WORKFLOW.md` from the current directory.
-Pass `--port 4000` to also start the LiveView dashboard at `http://localhost:4000`. The dashboard lists active and retrying sessions; drill into individual sessions at `/session/<issue_identifier>` to view live agent state, workspace git history, filtered logs, notes, and on-disk paths.
+Pass `--port 4000` to also start the LiveView dashboard at `http://localhost:4000`. The dashboard lists active and retrying sessions; drill into individual sessions at `/session/<issue_identifier>` to view live agent state, workspace git history, filtered logs, notes, and on-disk paths. While the dashboard is running, the orchestrator writes its base URL to `sardine_run.dashboard_url` on each session so the Traffic Control dashboard can render a back-link. Set `SARDINE_RUN_PUBLIC_HOSTNAME` to override the hostname when auto-detection isn't reachable.
 
 ## License
 

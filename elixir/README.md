@@ -188,6 +188,12 @@ When `--port` (or `server.port`) is set, Sardine Run runs:
 - JSON API under `/api/v1/*`
 - Bandit as the HTTP server
 
+While the dashboard is running, the orchestrator advertises its base URL on each active
+session's `sardine_run.dashboard_url` field in `session.yaml`, enabling external tools (e.g. the
+Traffic Control dashboard) to render a deep-link back to `/session/<issue_identifier>`. Set
+`SARDINE_RUN_PUBLIC_HOSTNAME` to override the hostname component when the auto-detected name
+isn't reachable from peers. The field is cleared on orderly shutdown.
+
 ## Project layout
 
 - `lib/`: application code and Mix tasks

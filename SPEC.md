@@ -1014,6 +1014,19 @@ runtime), workspace git history, the tail of the session's log lines, notes.md c
 on-disk file paths (session.yaml, notes.md, links.yaml, workspace path). Returns `404` if the
 `issue_identifier` is not in the current snapshot. Does not mutate session state.
 
+`/session/<issue_identifier>` is the canonical deep-link path. External tools (e.g. the Traffic
+Control dashboard) MAY render a back-link by composing `<dashboard_url>/session/<issue_identifier>`
+where `<dashboard_url>` is the value advertised on the session runtime payload (§13.7.4).
+
+#### 13.7.4 Dashboard URL Advertisement on Session Runtime
+
+When the HTTP server is enabled, an implementation SHOULD write its public dashboard URL to the
+session's runtime payload (`sardine_run.dashboard_url`) on dispatch and clear it on orderly
+shutdown. The URL takes the form `http://<host>:<port>` where `<host>` resolves from the
+`SARDINE_RUN_PUBLIC_HOSTNAME` environment variable when set, falling back to the host's resolved
+hostname. When the dashboard is disabled, the field MUST NOT be written. A stale value left
+behind by a hard kill is acceptable; consumers MUST tolerate connection failures gracefully.
+
 ## 14. Failure Model and Recovery Strategy
 
 ### 14.1 Failure Classes
