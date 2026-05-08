@@ -337,6 +337,126 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
              "git log section should be preserved across observability broadcasts"
     end
 
+    test ":filesystem_tick re-fetches workspace git log" do
+      workspace_root =
+        Path.join(System.tmp_dir!(), "sr-live-fst-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(workspace_root)
+      on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+      workspace = Path.join(workspace_root, "UPS-FSTICK")
+      File.mkdir_p!(workspace)
+
+      System.cmd("git", ["-C", workspace, "init", "--initial-branch=main"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "config", "user.email", "t@example.com"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "config", "user.name", "T"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "config", "commit.gpgsign", "false"], stderr_to_stdout: true)
+
+      File.write!(Path.join(workspace, "a.txt"), "x\n")
+      System.cmd("git", ["-C", workspace, "add", "a.txt"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "commit", "-m", "initial-commit-line"], stderr_to_stdout: true)
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      now = DateTime.utc_now()
+
+      snapshot = %{
+        running: [
+          %{
+            issue_id: "id-fstick",
+            identifier: "UPS-FSTICK",
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: workspace,
+            session_id: "thread-fstick",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 1,
+            started_at: DateTime.add(now, -1, :second),
+            last_codex_timestamp: now,
+            last_codex_message: nil,
+            last_codex_event: nil,
+            runtime_seconds: 1
+          }
+        ],
+        retrying: []
+      }
+
+      orchestrator_name = start_static_orchestrator!(snapshot)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+      {:ok, view, html} = live(build_conn(), "/session/UPS-FSTICK")
+      assert html =~ "initial-commit-line"
+      refute html =~ "second-commit-line"
+
+      File.write!(Path.join(workspace, "b.txt"), "y\n")
+      System.cmd("git", ["-C", workspace, "add", "b.txt"], stderr_to_stdout: true)
+
+      System.cmd("git", ["-C", workspace, "commit", "-m", "second-commit-line"], stderr_to_stdout: true)
+
+      send(view.pid, :filesystem_tick)
+      _ = :sys.get_state(view.pid)
+
+      html_after = render(view)
+      assert html_after =~ "second-commit-line", "filesystem_tick should refresh git log"
+      assert html_after =~ "initial-commit-line"
+    end
+
+    test "transitions from not-found to running when the issue appears in the snapshot" do
+      empty_snapshot = %{running: [], retrying: []}
+
+      orchestrator_name = start_static_orchestrator!(empty_snapshot)
+      orchestrator_pid = Process.whereis(orchestrator_name)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+      {:ok, view, html} = live(build_conn(), "/session/UPS-LATE")
+      assert html =~ "Session not active"
+
+      now = DateTime.utc_now()
+
+      snapshot_with_issue = %{
+        running: [
+          %{
+            issue_id: "id-late",
+            identifier: "UPS-LATE",
+            state: "In Progress",
+            worker_host: nil,
+            workspace_path: nil,
+            session_id: "thread-late",
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            turn_count: 1,
+            started_at: DateTime.add(now, -1, :second),
+            last_codex_timestamp: now,
+            last_codex_message: %{"type" => "agent_message", "message" => "now-active"},
+            last_codex_event: "agent_message",
+            runtime_seconds: 1
+          }
+        ],
+        retrying: []
+      }
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        Keyword.put(state, :snapshot, snapshot_with_issue)
+      end)
+
+      send(view.pid, :observability_updated)
+      _ = :sys.get_state(view.pid)
+
+      html_after = render(view)
+      refute html_after =~ "Session not active"
+      assert html_after =~ "now-active"
+      assert html_after =~ "Live agent state"
+    end
+
     test "re-renders when an :observability_updated broadcast fires" do
       snapshot_v1 = build_running_snapshot("UPS-PUBSUB", "first message")
 
