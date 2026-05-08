@@ -1,393 +1,243 @@
-# Implementation Plan: Session Detail LiveView
+# Implementation Plan: Needs-Attention Triage + SR Session Detail
 
-Spec: `docs/session-detail-liveview.md`
-Status: Ready for review
+Spec: `docs/plans/needs-attention-triage.md`
 Last updated: 2026-05-07
+
+This plan supersedes the prior "Session Detail LiveView" plan; that work is
+now Slice C below. Every prior task (T1–T6) is preserved as C1–C6.
 
 ## Overview
 
-Add a per-session drill-down route at `/session/:issue_identifier` to the
-Sardine Run observability dashboard. Each page surfaces five sections —
-live agent state, workspace git log, filtered log tail, `notes.md`, and
-on-disk paths — for one issue tracked by the running orchestrator.
+Three concurrent threads of work, one combined PR set:
 
-We slice vertically: every task leaves a route the operator can navigate
-to and that is fully tested. The first slice ships the route end-to-end
-with only the live-state section. Subsequent slices add one section at a
-time. The dashboard drill-down link and docs land last.
+1. **TC triage view + schema** (Python / FastAPI / Jinja, `traffic-control`).
+2. **SR per-session LiveView** (Elixir / Phoenix LiveView, `sardine-run`).
+3. **Cross-link wiring** between the two dashboards via a new
+   `dashboard_url` field on `SardineRunRuntime`.
 
 ## Architecture decisions
 
-- **One LiveView module, one presenter module.** `SessionDetailLive` owns
-  mount/handle_info/render. `SessionDetailPresenter` owns all data
-  shaping and all filesystem reads. Mirrors the
-  `DashboardLive` / `Presenter` split already in the codebase.
-- **Inline `~H` heredoc templates** matching `DashboardLive`, no separate
-  `.heex` files. Reuse existing `dashboard.css` classes.
-- **Reuse the existing PubSub channel** (`SardineRunWeb.ObservabilityPubSub`)
-  and `:runtime_tick` cadence. No new pubsub topics, no new GenServers.
-- **Identifier validation gate is the foundation.** A single
-  `validate_identifier/1` helper is the only allow-listed entry point for
-  the URL parameter; every section that joins paths or shells out must
-  call it first. Lives in the presenter so unit tests stay simple.
-- **Filesystem reads are pure functions taking a "filesystem-like" map of
-  paths**, not implicit `File.read!` calls. Lets the presenter tests
-  point at tmp dirs and hit real disk without mocks.
-- **404 path goes through the same render module**, not a separate
-  controller. Matches Phoenix LiveView convention and keeps behavior
-  consistent with the existing `/api/v1/:issue_identifier` 404 contract.
+- Triage view lives in TC dashboard (always-on, tool-agnostic).
+- SR exposes a real LiveView at `/session/:issue_identifier` (own module,
+  own `mount/3`).
+- TC discovers SR via runtime payload (`session.sardine_run.dashboard_url`),
+  not config. Button only renders when the field is populated.
+- Schema is backwards compatible — new field is optional.
+- Identifier validation is the security gate for all SR per-session reads
+  (allow-list `~r/\A[A-Za-z0-9._-]+\z/`).
 
 ## Dependency graph
 
 ```
-            ┌──────────────────────────────────┐
-            │ T1  identifier validation +      │
-            │     SessionDetailPresenter skel  │
-            └───────────────┬──────────────────┘
-                            │
-            ┌───────────────▼──────────────────┐
-            │ T2  Route + LiveView + live      │
-            │     agent state section + 404    │
-            └───────────────┬──────────────────┘
-                            │
-   ┌────────────────────────┼─────────────────────────┐
-   │                        │                         │
-┌──▼──────────────┐  ┌──────▼─────────────┐  ┌───────▼────────────┐
-│ T3 git log      │  │ T4 log tail        │  │ T5 notes.md +      │
-│ section         │  │ section            │  │    on-disk paths   │
-└──┬──────────────┘  └──────┬─────────────┘  └───────┬────────────┘
-   │                        │                        │
-   └────────────────────────┼────────────────────────┘
-                            │
-            ┌───────────────▼──────────────────┐
-            │ T6  Dashboard drill-down links + │
-            │     READMEs                      │
-            └──────────────────────────────────┘
+A: schema.dashboard_url (TC)
+   ├── D: SR populates/clears dashboard_url
+   │      └── E: TC "Open in Sardine Run" button
+   └── (no other consumers)
+
+B: TC "Needs your attention" section (TC)              [independent]
+
+C1: identifier validation + presenter skeleton (SR)
+    └── C2: route + LiveView + live-state + 404 (SR)
+            ├── C3: workspace git log section (SR)     [parallel C3/C4/C5]
+            ├── C4: log-tail section (SR)
+            ├── C5: notes.md + on-disk paths (SR)
+            └── C6: dashboard drill-down links (SR)
+
+F: docs sweep — after all of the above
 ```
 
-T3, T4, T5 are independent of each other. They can be parallelized after
-T2 lands (one feature branch per slice, or a single agent doing them
-serially — same result).
-
-## Task list
-
-### Phase 1 — Foundation (do first, sequential)
-
-#### Task 1: Identifier validation + presenter skeleton
-
-**Description.** Stand up `SardineRunWeb.SessionDetailPresenter` with one
-public function: `validate_identifier/1` that enforces the allow-list
-pattern `~r/\A[A-Za-z0-9._-]+\z/` (same regex `SessionWriter` uses) and
-returns `{:ok, identifier}` or `{:error, :invalid_identifier}`. Add a
-second public function `payload/3` that takes `(identifier, snapshot,
-filesystem)` and returns `{:ok, %{...}}` or `{:error, :not_found}`,
-initially populating only the live-state slice. `filesystem` is a map
-with `:state_repo`, `:workspace_path`, `:log_file` keys so tests can
-point at tmp dirs.
-
-**Acceptance criteria:**
-- [ ] `validate_identifier/1` accepts `"UPS-123"`, `"foo.bar"`, `"a_b"`;
-      rejects `""`, `"../etc"`, `"a/b"`, `"a b"`.
-- [ ] `payload/3` returns `{:error, :not_found}` when the identifier is
-      in neither `snapshot.running` nor `snapshot.retrying`.
-- [ ] `payload/3` returns `{:ok, %{header: ..., live_state: ..., status:
-      "running" | "retrying"}}` with values matching the existing
-      `Presenter.issue_payload/3` shape for `running` / `retrying` /
-      `tokens` / `last_event` / `runtime` fields.
-- [ ] All public defs carry `@spec`.
-- [ ] No filesystem reads happen yet (sections T3–T5 add them).
-
-**Verification:**
-- [ ] `mix test test/sardine_run_web/session_detail_presenter_test.exs`
-- [ ] `mix specs.check`
-- [ ] `mix format --check-formatted` and `mix lint` clean.
-
-**Dependencies:** None.
-
-**Files likely touched:**
-- `elixir/lib/sardine_run_web/session_detail_presenter.ex` (new)
-- `elixir/test/sardine_run_web/session_detail_presenter_test.exs` (new)
-
-**Estimated scope:** S (2 files).
-
----
-
-### Phase 2 — Vertical slice 1: route works end-to-end
-
-#### Task 2: Route + LiveView + live-state section + 404
-
-**Description.** Wire the route, mount the LiveView, render the header
-and the live-agent-state section, and handle the 404 case. Subscribe to
-`ObservabilityPubSub` and re-render on `:observability_updated`. Schedule
-a `:runtime_tick` and increment the runtime counter without re-fetching
-the snapshot, mirroring `DashboardLive`. After this task ships, an
-operator can manually type `/session/<identifier>` and see live state for
-an active issue, or a clean "session not active" page otherwise.
-
-**Acceptance criteria:**
-- [ ] `GET /session/<identifier>` mounts `SessionDetailLive`.
-- [ ] Page renders header (identifier + status badge + back link),
-      live-state section (runtime, turns, last event, last message,
-      tokens, retry attempt + due_at when retrying).
-- [ ] Unknown or invalid identifier renders the not-found page with a
-      back link to `/`. Returns `200`, not `500` (matches LiveView
-      conventions; the controller-level 404 is reserved for the JSON
-      API).
-- [ ] `:observability_updated` PubSub broadcast triggers a re-render
-      with the latest snapshot values.
-- [ ] `:runtime_tick` updates the on-screen runtime counter without a
-      snapshot refetch.
-
-**Verification:**
-- [ ] `Phoenix.LiveViewTest` mount-with-known-identifier test passes.
-- [ ] Mount-with-unknown-identifier renders the not-found state.
-- [ ] Mount-with-invalid-identifier (`"../etc"`) renders the not-found
-      state and never joins a path.
-- [ ] PubSub broadcast triggers re-render in test.
-- [ ] `:runtime_tick` test updates the counter.
-- [ ] Manual: start `./bin/sardine-run --port 4000 ./WORKFLOW.md`
-      against a populated state-repo, navigate to
-      `/session/<known-id>`, see live state. Navigate to
-      `/session/zzz-unknown`, see the not-found page.
-
-**Dependencies:** T1.
-
-**Files likely touched:**
-- `elixir/lib/sardine_run_web/router.ex`
-- `elixir/lib/sardine_run_web/live/session_detail_live.ex` (new)
-- `elixir/lib/sardine_run_web/session_detail_presenter.ex`
-- `elixir/test/sardine_run_web/live/session_detail_live_test.exs` (new)
-- `elixir/test/sardine_run_web/session_detail_presenter_test.exs`
-
-**Estimated scope:** M (5 files).
-
----
-
-### Checkpoint: Foundation + slice 1
-
-Stop and confirm before starting T3–T5:
-
-- [ ] `make all` is green (setup, build, fmt-check, lint, coverage,
-      dialyzer).
-- [ ] Manual smoke against a real state-repo confirms the live-state
-      section reflects what `DashboardLive` shows for the same issue.
-- [ ] Identifier validation rejects the dot-dot/slash cases in tests.
-- [ ] Human review: spec alignment, naming, file layout.
-
----
-
-### Phase 3 — Section slices (independent; can parallelize)
-
-#### Task 3: Workspace git log section
-
-**Description.** Add a presenter helper that runs
-`git -C <workspace_path> log --pretty=format:"%h %s" --max-count=10`
-through `System.cmd/3` with `stderr_to_stdout: true` and a 5-second
-timeout. The workspace path must already be inside
-`Config.settings!().workspace.root` (verified via `PathSafety` before
-the shell-out). Render the result in a new `section-card`. Empty / git
-errors / missing dir all degrade to a clean inline message.
-
-**Acceptance criteria:**
-- [ ] Section renders the last 10 commits when the workspace contains a
-      git repo.
-- [ ] Renders "no git history" (no stderr leaked) when `git` exits
-      non-zero or the dir is not a repo.
-- [ ] Renders "workspace not present" when the dir does not exist.
-- [ ] Never executes `git` if the workspace path fails `PathSafety`
-      containment.
-- [ ] Hard 5-second timeout enforced; tests cover the timeout branch
-      via a mock or short-circuit.
-
-**Verification:**
-- [ ] Presenter test against a tmp repo with a fixed sequence of
-      commits.
-- [ ] Presenter test for missing-dir, non-repo-dir, and out-of-root
-      cases.
-- [ ] LiveView test asserting the section renders for the happy path.
-- [ ] `mix test`, `mix lint`, `mix specs.check` clean.
-
-**Dependencies:** T2.
-
-**Files likely touched:**
-- `elixir/lib/sardine_run_web/session_detail_presenter.ex`
-- `elixir/lib/sardine_run_web/live/session_detail_live.ex`
-- `elixir/test/sardine_run_web/session_detail_presenter_test.exs`
-- `elixir/test/sardine_run_web/live/session_detail_live_test.exs`
-
-**Estimated scope:** S–M (4 files, one new section, one new shell-out).
-
----
-
-#### Task 4: Filtered log-tail section
-
-**Description.** Add a presenter helper that shells out to
-`tail -c 5242880 <log_file>` (path from
-`SardineRun.LogFile.default_log_file/0`) so we never load more than the
-last 5 MiB of the active log, filters lines containing the identifier
-(case-sensitive substring; identifier already validated to a tight
-allow-list), and returns the last 200 matches. Hard 5-second timeout.
-Render in a scrollable monospace pane, newest at the bottom. Cleanly
-handles missing file.
-
-**Acceptance criteria:**
-- [ ] Section shows the last 200 matching log lines.
-- [ ] Lines are returned newest-at-bottom for chronological reading.
-- [ ] `tail -c 5242880` partial read: peak memory bounded regardless
-      of file size.
-- [ ] Missing log file renders "no log entries" (no exception).
-- [ ] `tail` failure or 5-second timeout renders "no log entries"
-      cleanly (no stack trace, no leaked stderr).
-- [ ] Non-matching lines never appear in output.
-
-**Verification:**
-- [ ] Presenter test writes a tmp log file with a controlled mix of
-      matching/non-matching lines and asserts ordering and cap.
-- [ ] Presenter test asserts the missing-file case.
-- [ ] LiveView test asserts the section is rendered.
-- [ ] `mix test`, `mix lint`, `mix specs.check` clean.
-
-**Dependencies:** T2.
-
-**Files likely touched:**
-- `elixir/lib/sardine_run_web/session_detail_presenter.ex`
-- `elixir/lib/sardine_run_web/live/session_detail_live.ex`
-- `elixir/test/sardine_run_web/session_detail_presenter_test.exs`
-- `elixir/test/sardine_run_web/live/session_detail_live_test.exs`
-
-**Estimated scope:** S–M (4 files).
-
----
-
-#### Task 5: notes.md + on-disk paths section
-
-**Description.** Add a presenter helper that resolves
-`<state_repo>/sessions/<identifier>/notes.md` via
-`SardineRun.TrafficControl.Adapter.resolve_state_repo/0`, reads the file
-if present, and returns plain text plus the resolved on-disk paths for
-`session.yaml`, `notes.md`, `links.yaml`, and the workspace path. When
-`tracker.kind: memory` (no state_repo configured), the on-disk-paths
-block is hidden and the notes block reads "notes unavailable in memory
-tracker mode".
-
-**Acceptance criteria:**
-- [ ] notes.md present → renders inside `<pre>`.
-- [ ] notes.md missing → renders "no notes".
-- [ ] state_repo not configured → renders the memory-tracker message
-      and hides the on-disk-paths block.
-- [ ] On-disk-paths block lists the four absolute paths verbatim.
-- [ ] No path is constructed from the URL parameter without going
-      through `validate_identifier/1` first.
-
-**Verification:**
-- [ ] Presenter tests for the three notes states (present, missing,
-      memory).
-- [ ] Presenter test asserts the four on-disk paths are correct given a
-      synthetic state_repo and workspace_root.
-- [ ] LiveView test asserts the section renders for the happy path.
-- [ ] `mix test`, `mix lint`, `mix specs.check` clean.
-
-**Dependencies:** T2.
-
-**Files likely touched:**
-- `elixir/lib/sardine_run_web/session_detail_presenter.ex`
-- `elixir/lib/sardine_run_web/live/session_detail_live.ex`
-- `elixir/test/sardine_run_web/session_detail_presenter_test.exs`
-- `elixir/test/sardine_run_web/live/session_detail_live_test.exs`
-
-**Estimated scope:** S–M (4 files).
-
----
-
-### Checkpoint: All section slices
-
-Stop and confirm before T6:
-
-- [ ] `make all` green.
-- [ ] Manual smoke: every section visible for a live issue; degraded
-      states verified by temporarily renaming the workspace, deleting
-      `notes.md`, and clearing the log file (or by switching to a
-      memory tracker).
-- [ ] Test coverage for the presenter is materially complete (every
-      branch in a section has at least one assertion).
-
----
-
-### Phase 4 — Wire-up and docs
-
-#### Task 6: Dashboard drill-down links + READMEs
-
-**Description.** Add a "View session" link to each row in the Running
-and Retrying tables in `DashboardLive` pointing at
-`/session/<entry.issue_identifier>`. Update the elixir/README.md and
-project-root README.md to mention the new route under observability. No
-changes to `SPEC.md` or `WORKFLOW.md`.
-
-**Acceptance criteria:**
-- [ ] Each Running row renders a link with
-      `href="/session/<identifier>"`.
-- [ ] Each Retrying row renders a link with
-      `href="/session/<identifier>"`.
-- [ ] Existing "JSON details" link is preserved.
-- [ ] Both READMEs document the new route in one or two lines.
-
-**Verification:**
-- [ ] LiveView regression test against `DashboardLive` asserting the
-      new links render for both tables.
-- [ ] `mix test`, `mix lint`, `mix specs.check` clean.
-- [ ] `make all` passes.
-- [ ] Manual: clicking the link from the dashboard navigates to the
-      detail page.
-
-**Dependencies:** T3, T4, T5 (so the destination page is feature-complete
-before we point users at it; can be relaxed if we want to ship the link
-earlier as a manual-typing aid).
-
-**Files likely touched:**
-- `elixir/lib/sardine_run_web/live/dashboard_live.ex`
-- `elixir/test/sardine_run/status_dashboard_snapshot_test.exs` or a
-  dedicated `dashboard_live_test.exs` if regression coverage doesn't
-  already exist.
-- `README.md`
-- `elixir/README.md`
-
-**Estimated scope:** S (3–4 files).
-
----
-
-### Checkpoint: Complete
-
-Before declaring done and opening the PR:
-
-- [ ] All acceptance criteria across T1–T6 are checked.
-- [ ] `make all` is green on the feature branch.
-- [ ] PR body conforms to `.github/pull_request_template.md` and passes
-      `mix pr_body.check`.
-- [ ] Manual smoke: dashboard → drill-down → all five sections → back to
-      dashboard works against a real state-repo.
-- [ ] Manual smoke: identifier-not-active path produces the not-found
-      page.
-- [ ] Code review by the human (or `agent-skills:review`).
+Parallel-safe at the start: **A, B, C1** (different repos for C1 vs A/B;
+different files within TC for A vs B).
+
+## Phase 1 — Foundations (parallel)
+
+### Task A — Add `dashboard_url` to `SardineRunRuntime`
+**Repo:** traffic-control. **Scope:** XS.
+- Add `dashboard_url: str | None = None` field.
+- Round-trip serialization test (set + unset).
+- Verify: `cd packages/schema && uv run pytest`; storage tests still pass.
+- Files: `packages/schema/src/schema/session.py`, schema tests.
+
+### Task B — TC "Needs your attention" section
+**Repo:** traffic-control. **Scope:** M.
+- New section above fleet table on `/`.
+- Filter: `status=waiting AND waiting.kind=external`, sort by
+  `waiting.requested_at` ascending.
+- Row: ID, title (linked to `/sessions/{id}`), waiting note (≤140 chars),
+  age (bold > 24h), tool badge.
+- Tool badge: `sardine_run.agent_id` set → `sardine-run`; else
+  `metadata.tool == "claude-code"` → `claude-code`; else `manual`.
+- Empty state: "No sessions waiting on you. Nice."
+- Files: `apps/dashboard/src/dashboard/routes/home.py`,
+  `apps/dashboard/src/dashboard/templates/home.html`, helper for age
+  formatting if not present, `apps/dashboard/tests/test_routes.py` +
+  fixtures.
+- Verify: `cd apps/dashboard && uv run pytest -k attention`; manual load
+  of `/`.
+
+### Task C1 — Identifier validation + `SessionDetailPresenter` skeleton
+**Repo:** sardine-run. **Scope:** S.
+- `SardineRunWeb.SessionDetailPresenter` with:
+  - `validate_identifier/1` — allow-list `~r/\A[A-Za-z0-9._-]+\z/`,
+    returns `{:ok, id}` | `{:error, :invalid_identifier}`.
+  - `payload/3` — `(identifier, snapshot, filesystem)` → `{:ok, %{...}}`
+    | `{:error, :not_found}`. Initial fields: header + live-state only.
+- All public defs `@spec`'d.
+- No filesystem reads yet.
+- Files: `lib/sardine_run_web/session_detail_presenter.ex` (new), test.
+- Verify: `mix test test/sardine_run_web/session_detail_presenter_test.exs`,
+  `mix specs.check`, `mix lint`.
+
+### Checkpoint 1
+- [ ] A, B, C1 merged.
+- [ ] `make all` green (SR), `uv run pytest` green (TC).
+- [ ] Manual: TC fleet shows triage section; SR test suite passes.
+
+## Phase 2 — SR slice 1 end-to-end
+
+### Task C2 — Route + `SessionDetailLive` + live-state + 404
+**Repo:** sardine-run. **Scope:** M.
+- `live "/session/:issue_identifier", SessionDetailLive, :show` in browser
+  pipeline.
+- Mount: validate identifier → fetch snapshot → render header + live-state
+  (runtime, turns, last event, last message, tokens, retry attempt).
+- Subscribe to `SardineRunWeb.ObservabilityPubSub`; re-render on
+  `:observability_updated`.
+- `:runtime_tick` updates the runtime counter without re-fetching the
+  snapshot.
+- Unknown / invalid identifier → not-found page (200, not 500), back-link
+  to `/`.
+- Files: `lib/sardine_run_web/router.ex`,
+  `lib/sardine_run_web/live/session_detail_live.ex` (new),
+  `lib/sardine_run_web/session_detail_presenter.ex`,
+  `test/sardine_run_web/live/session_detail_live_test.exs` (new),
+  presenter test.
+- Verify: LiveView mount tests (known/unknown/invalid id); PubSub
+  re-render test; manual smoke.
+
+### Checkpoint 2
+- [ ] C2 merged. SR per-session route loads end-to-end.
+- [ ] Identifier-injection cases (`../etc`, `a/b`, `a b`) all rejected
+      in tests.
+
+## Phase 3 — SR section slices (parallelizable)
+
+### Task C3 — Workspace git log section
+**Repo:** sardine-run. **Scope:** S–M.
+- Presenter helper: `git -C <workspace_path> log --pretty=format:"%h %s"
+  --max-count=10` via `System.cmd/3`, `stderr_to_stdout: true`, 5s
+  timeout.
+- `PathSafety` containment check before any shell-out.
+- Empty / git error → "no git history". Missing dir → "workspace not
+  present". Out-of-root → never executed.
+- Files: presenter, LiveView render, two test files.
+- Verify: tmp-repo presenter test (happy + error paths); LiveView render
+  test.
+
+### Task C4 — Filtered log-tail section
+**Repo:** sardine-run. **Scope:** S–M.
+- Presenter helper: `tail -c 5242880 <log_file>` (cap at 5 MiB), filter
+  for identifier substring (validated allow-list), keep last 200 matches,
+  newest at bottom. 5s timeout.
+- Missing file / tail failure / timeout → "no log entries", no stack
+  trace, no leaked stderr.
+- Files: presenter, LiveView render, two test files.
+- Verify: tmp-log presenter test (ordering, cap, missing file); LiveView
+  render test.
+
+### Task C5 — `notes.md` + on-disk paths section
+**Repo:** sardine-run. **Scope:** S–M.
+- Presenter helper resolves
+  `<state_repo>/sessions/<identifier>/notes.md` via the existing
+  `TrafficControl.Adapter.resolve_state_repo/0`.
+- Renders notes inside `<pre>` (Phoenix auto-escapes via `~H`).
+- On-disk paths block: `session.yaml`, `notes.md`, `links.yaml`,
+  workspace path. Hidden when `tracker.kind: memory`.
+- Files: presenter, LiveView render, two test files.
+- Verify: presenter tests for present/missing/memory cases; LiveView
+  render test.
+
+### Checkpoint 3
+- [ ] C3 + C4 + C5 merged. All five sections visible for live issue.
+- [ ] Degraded states (missing workspace, missing notes, missing log)
+      verified.
+- [ ] Presenter branch coverage materially complete.
+
+## Phase 4 — SR drill-down + cross-link wiring (parallel)
+
+### Task C6 — Dashboard drill-down links
+**Repo:** sardine-run. **Scope:** S.
+- Each Running and Retrying row in `DashboardLive` gets `View session →`
+  link to `/session/<identifier>`.
+- Existing JSON details link preserved.
+- Files: `lib/sardine_run_web/live/dashboard_live.ex`, regression test.
+
+### Task D — SR populates `dashboard_url`
+**Repo:** sardine-run. **Scope:** M. **Depends on:** A merged.
+- On dispatch, write `dashboard_url = "http://<host>:<port>"` via
+  `SessionWriter` for the active session.
+- Hostname source: `SARDINE_RUN_PUBLIC_HOSTNAME` env > `:inet.gethostname/0`.
+- Port: configured server port. If dashboard disabled, never write.
+- On orderly shutdown (`terminate/2`), nil the field for every active
+  session.
+- Files: `lib/sardine_run/orchestrator.ex`,
+  `lib/sardine_run/traffic_control/session_writer.ex` (if signature
+  needs the new field), `lib/sardine_run/config.ex` (public hostname
+  getter), tests.
+
+### Task E — TC "Open in Sardine Run" button
+**Repo:** traffic-control. **Scope:** S. **Depends on:** A merged.
+- On `/sessions/{id}`, render button when
+  `session.sardine_run.dashboard_url` is non-empty:
+  `{dashboard_url}/session/{issue_identifier}`.
+- `target="_blank" rel="noopener noreferrer"`.
+- Omit entirely when null.
+- Files: `apps/dashboard/src/dashboard/templates/session_detail.html`,
+  `apps/dashboard/tests/test_routes.py`.
+
+### Checkpoint 4
+- [ ] C6, D, E merged. End-to-end mutual deep-link verified.
+- [ ] SR shutdown clears the field; TC button vanishes on next reload.
+
+## Phase 5 — Docs
+
+### Task F — Documentation sweep
+**Scope:** S.
+- `traffic-control/README.md` — describe new fleet section.
+- `sardine-run/README.md` and `sardine-run/elixir/README.md` — document
+  `/session/:issue_identifier`, `dashboard_url` field,
+  `SARDINE_RUN_PUBLIC_HOSTNAME` env var.
+- `sardine-run/SPEC.md` — add `dashboard_url` to runtime contract,
+  declare `/session/:issue_identifier` as canonical deep-link path.
+- Verify: human read.
+
+### Checkpoint 5 — Done
+- [ ] All acceptance criteria from `docs/plans/needs-attention-triage.md`
+      met.
+- [ ] PRs opened in both repos with the spec linked.
+- [ ] `mix pr_body.check` clean for the SR PR.
 
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Shell-out to `git` hangs (e.g. inside a corrupted repo or a network FS) | Med | 5-second hard timeout; render "no git history" on timeout. |
-| Log file scanning scales with disk size | Med | `tail -c 5242880` partial read (last 5 MiB) + 5-second timeout; cap at 200 returned lines. |
-| URL-injected identifier reaches `git`, `Path.join`, or `File.read!` | High | Single `validate_identifier/1` allow-list gate at the LiveView entry; tests assert rejection of dot-dot, slash, whitespace. |
-| `notes.md` contains sensitive content rendered as raw HTML | Med | Render inside `<pre>` with `~H` interpolation (Phoenix auto-escapes). No markdown rendering this iteration. |
-| Live PubSub re-renders thrash with many issues open | Low | Same broadcast cadence as `DashboardLive`, which already operates at this rate without issues. |
-| Workspace path falls outside `workspace.root` (mis-config) | Med | `PathSafety` containment check before any read or shell-out; render "workspace not present" otherwise. |
+| URL-injected identifier reaches `git`, `Path.join`, `File.read!` | High | `validate_identifier/1` allow-list at LiveView entry; tests assert dot-dot, slash, whitespace rejection |
+| Shell-out to `git` hangs on corrupt repo / network FS | Med | 5s hard timeout; degrade to "no git history" |
+| Log scanning scales with disk size | Med | `tail -c 5242880` partial read + 200-line cap + 5s timeout |
+| `notes.md` contains hostile content rendered as raw HTML | Med | Render in `<pre>`, Phoenix auto-escapes via `~H`; no markdown rendering this iteration |
+| Hostname resolution returns unreachable address | Med | `SARDINE_RUN_PUBLIC_HOSTNAME` override; document fallback chain |
+| Stale `dashboard_url` after hard kill | Low | Spec accepts; user gets connection-refused, not corrupted state |
+| Existing session.yaml files break on schema change | High | New field optional with default `None`; round-trip test |
+| Workspace path falls outside `workspace.root` (mis-config) | Med | `PathSafety` containment check before any read or shell-out |
 
 ## Parallelization
 
-After T2 ships, T3, T4, and T5 are independent and can be split across
-sessions or branches. They touch the same two files (presenter and
-LiveView) so a single agent serially is the simpler default; only split
-if multiple agents are running in parallel.
+- **Phase 1:** A ‖ B ‖ C1 (separate worktrees / repos).
+- **Phase 3:** C3 ‖ C4 ‖ C5 (touch the same two SR files; safe to
+  parallelize only if conflicts are resolved by a single merger or done
+  sequentially in one worktree).
+- **Phase 4:** C6 ‖ D ‖ E (D and E both depend on A; C6 is independent).
 
 ## Open questions
 
-None at plan acceptance time. Any surprise during build will be appended
-here and to the spec's open-questions section.
+None at plan acceptance. Append here on surprise.
