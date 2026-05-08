@@ -41,17 +41,16 @@ Spec: `docs/plans/needs-attention-triage.md`
       rows (sardine-run). — `d861930`
 - [x] **D** SR populates `dashboard_url` on dispatch; clears on
       shutdown (sardine-run). — `1e757e9`
-- [ ] **E** TC "Open in Sardine Run" button on `/sessions/{id}`
-      (traffic-control).
+- [x] **E** TC "Open in Sardine Run" button on `/sessions/{id}`
+      (traffic-control). — `c6c8820`
 
 ### Checkpoint 4
-- [ ] C6, D, E merged. End-to-end mutual deep-link verified.
+- [x] C6, D, E merged. End-to-end mutual deep-link verified.
 
 ## Phase 5 — Docs
 
-- [x] **F** `sardine-run/README.md`, `sardine-run/elixir/README.md`,
-      `sardine-run/SPEC.md` updates. — `09db879` (TC-side README still
-      pending in the other repo)
+- [x] **F** Doc sweep across both repos. — SR `09db879` + `30a8480`,
+      TC `ecbf9c8`
 
 ### Checkpoint 5 — Done
 
