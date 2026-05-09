@@ -119,6 +119,10 @@ Operations:
   appends an entry to `sessions/{{ issue.identifier }}/links.yaml`.
 - `operation: focus` with `value` — sets the session's current focus (empty string clears it).
 - `operation: next_step` with `value` — sets the intended next step (empty string clears it).
+- `operation: git_push` with `branch` (required) and optional `remote` (default `origin`) —
+  the orchestrator runs `git push <remote> <branch>` in the workspace on the host, outside the
+  sandbox. Use this instead of bare `git push` when shell network or `.git` connectivity is
+  blocked inside the sandbox.
 
 Use `note` for narrative progress; use `focus` / `next_step` for the one-line summary fields.
 

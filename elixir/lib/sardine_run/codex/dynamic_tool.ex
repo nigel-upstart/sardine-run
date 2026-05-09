@@ -19,7 +19,9 @@ defmodule SardineRun.Codex.DynamicTool do
     "description" =>
       "Update the assigned Traffic Control session for this Sardine Run agent. " <>
         "Use to change status, record waiting state, append notes, add links, " <>
-        "or send a heartbeat.",
+        "send a heartbeat, or push a git branch via the orchestrator (git_push). " <>
+        "git_push runs on the host outside the sandbox, so it works even when " <>
+        "the agent's network access is disabled.",
     "inputSchema" => %{
       "type" => "object",
       "additionalProperties" => false,
