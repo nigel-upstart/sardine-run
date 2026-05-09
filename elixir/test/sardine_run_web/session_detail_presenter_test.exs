@@ -507,6 +507,24 @@ defmodule SardineRunWeb.SessionDetailPresenterTest do
       assert byte_size(payload.notes.content) == 65_536
     end
 
+    test "truncates at the last valid UTF-8 boundary when cap splits a multi-byte char",
+         %{state_repo: state_repo, session_dir: session_dir} do
+      # 65,534 bytes of ASCII, then a 3-byte UTF-8 char starting at byte 65,534.
+      # The cap (65,536) would land mid-char without a boundary fix.
+      prefix = String.duplicate("a", 65_534)
+      content = prefix <> "€" <> String.duplicate("z", 100)
+      File.write!(Path.join(session_dir, "notes.md"), content)
+
+      snapshot = notes_running_snapshot("UPS-NOTES")
+
+      assert {:ok, payload} =
+               SessionDetailPresenter.payload("UPS-NOTES", snapshot, %{state_repo: state_repo})
+
+      assert payload.notes.status == :ok
+      assert String.valid?(payload.notes.content)
+      assert byte_size(payload.notes.content) <= 65_536
+    end
+
     test "returns :memory_tracker when state_repo is not in filesystem" do
       snapshot = notes_running_snapshot("UPS-NOTES")
 

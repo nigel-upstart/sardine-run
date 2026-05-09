@@ -16,17 +16,22 @@ defmodule SardineRunWeb.SessionDetailLive do
 
   @impl true
   def mount(%{"issue_identifier" => raw_identifier}, _session, socket) do
+    socket =
+      socket
+      |> assign(:raw_identifier, raw_identifier)
+      |> assign(:now, DateTime.utc_now())
+
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
       schedule_runtime_tick()
       schedule_filesystem_tick()
+      {:ok, assign_payload(socket)}
+    else
+      # Static (disconnected) render: skip filesystem reads and shell-outs
+      # entirely. The connected mount will replace this with the full
+      # payload once the WS upgrades. See review notes on SSR perf.
+      {:ok, assign(socket, :result, :loading)}
     end
-
-    {:ok,
-     socket
-     |> assign(:raw_identifier, raw_identifier)
-     |> assign(:now, DateTime.utc_now())
-     |> assign_payload()}
   end
 
   @impl true
@@ -57,6 +62,18 @@ defmodule SardineRunWeb.SessionDetailLive do
   def render(assigns) do
     ~H"""
     <%= case @result do %>
+      <% :loading -> %>
+        <section class="dashboard-shell">
+          <header class="hero-card">
+            <div>
+              <p class="eyebrow">Sardine Run · Session detail</p>
+              <h1 class="hero-title">Loading session…</h1>
+              <p class="hero-copy">
+                Waiting for the live socket to connect.
+              </p>
+            </div>
+          </header>
+        </section>
       <% {:error, _} -> %>
         <section class="dashboard-shell">
           <header class="hero-card">
@@ -313,32 +330,23 @@ defmodule SardineRunWeb.SessionDetailLive do
   end
 
   defp refresh_live_state(socket) do
-    snapshot = snapshot()
+    case socket.assigns[:result] do
+      {:ok, prev} ->
+        snapshot = snapshot()
 
-    case SessionDetailPresenter.live_payload(socket.assigns.raw_identifier, snapshot) do
-      {:ok, live_only} ->
-        new_result =
-          case socket.assigns[:result] do
-            {:ok, prev} ->
-              {:ok, Map.merge(prev, live_only)}
+        case SessionDetailPresenter.live_payload(socket.assigns.raw_identifier, snapshot) do
+          {:ok, live_only} ->
+            assign(socket, :result, {:ok, Map.merge(prev, live_only)})
 
-            _ ->
-              {:ok,
-               Map.merge(
-                 %{
-                   git_log: %{status: :unconfigured, lines: []},
-                   log_tail: %{status: :unconfigured, lines: []},
-                   notes: %{status: :memory_tracker, content: nil},
-                   paths: :hidden
-                 },
-                 live_only
-               )}
-          end
+          {:error, _reason} = err ->
+            assign(socket, :result, err)
+        end
 
-        assign(socket, :result, new_result)
-
-      {:error, _reason} = err ->
-        assign(socket, :result, err)
+      _other ->
+        # Transitioning out of :loading or {:error, _} — do an immediate
+        # full refresh so filesystem-derived sections aren't stuck on
+        # placeholder values until the next 10-second :filesystem_tick.
+        assign_payload(socket)
     end
   end
 

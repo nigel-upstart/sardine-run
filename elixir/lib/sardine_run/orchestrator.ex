@@ -1902,6 +1902,11 @@ defmodule SardineRun.Orchestrator do
     end
   end
 
+  # Best-effort clear of `dashboard_url` on session termination. Always
+  # returns `:ok`; logs and continues when the writer fails (asymmetric
+  # with `write_session_dashboard_url/2`, which propagates errors so the
+  # caller can choose to retry).
+  @spec clear_session_dashboard_url(String.t(), String.t()) :: :ok
   defp clear_session_dashboard_url(issue_id, issue_identifier) do
     case SessionWriter.update_runtime(issue_id, %{dashboard_url: nil}) do
       :ok ->
@@ -1909,6 +1914,8 @@ defmodule SardineRun.Orchestrator do
 
       {:error, reason} ->
         Logger.debug("Could not clear dashboard_url for issue_id=#{issue_id} issue_identifier=#{issue_identifier}: #{inspect(reason)}")
+
+        :ok
     end
   end
 end

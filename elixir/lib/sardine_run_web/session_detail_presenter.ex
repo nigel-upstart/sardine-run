@@ -248,7 +248,15 @@ defmodule SardineRunWeb.SessionDetailPresenter do
 
     case Task.yield(task, @git_log_timeout_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, {output, 0}} ->
-        lines = output |> String.split("\n", trim: true)
+        # `stderr_to_stdout: true` suppresses BEAM-stderr noise but lets
+        # warnings/hints through. Filter to lines matching `<sha> <subject>`
+        # so stderr lines (e.g. `hint: ...`) never leak into the rendered
+        # output.
+        lines =
+          output
+          |> String.split("\n", trim: true)
+          |> Enum.filter(&Regex.match?(~r/^[0-9a-f]{4,}\s/, &1))
+
         %{status: :ok, lines: lines}
 
       _other ->
@@ -339,7 +347,7 @@ defmodule SardineRunWeb.SessionDetailPresenter do
           case IO.binread(fd, max_bytes) do
             :eof -> {:ok, ""}
             {:error, _reason} -> :missing
-            data when is_binary(data) -> {:ok, data}
+            data when is_binary(data) -> {:ok, trim_to_utf8_boundary(data)}
           end
         after
           File.close(fd)
@@ -349,6 +357,16 @@ defmodule SardineRunWeb.SessionDetailPresenter do
         :missing
     end
   end
+
+  # Drop trailing bytes that form an incomplete UTF-8 codepoint. Up to
+  # three bytes can be cut by a fixed-byte read; we walk back until the
+  # remaining binary is valid or empty.
+  defp trim_to_utf8_boundary(data) when is_binary(data) do
+    if String.valid?(data), do: data, else: trim_to_utf8_boundary(binary_drop_last(data))
+  end
+
+  defp binary_drop_last(""), do: ""
+  defp binary_drop_last(data), do: binary_part(data, 0, byte_size(data) - 1)
 
   @doc """
   Build the on-disk paths block for a session.
