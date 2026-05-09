@@ -38,7 +38,8 @@ defmodule SardineRun.Codex.DynamicToolTest do
                "note",
                "link",
                "focus",
-               "next_step"
+               "next_step",
+               "git_push"
              ]
 
       assert props["session_id"]["type"] == "string"
@@ -333,6 +334,127 @@ defmodule SardineRun.Codex.DynamicToolTest do
       raw = File.read!(path)
       {:ok, parsed} = YamlElixir.read_from_string(raw)
       assert parsed["next_step"] == "ship the PR"
+    end
+  end
+
+  describe "execute/3 git_push operation" do
+    defp make_git_workspace! do
+      dir = Path.join(System.tmp_dir!(), "git-ws-#{:erlang.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      {_, 0} = System.cmd("git", ["init"], cd: dir, stderr_to_stdout: true)
+      {_, 0} = System.cmd("git", ["config", "user.email", "test@example.com"], cd: dir)
+      {_, 0} = System.cmd("git", ["config", "user.name", "Test"], cd: dir)
+      File.write!(Path.join(dir, "README.md"), "hello")
+      {_, 0} = System.cmd("git", ["add", "."], cd: dir, stderr_to_stdout: true)
+      {_, 0} = System.cmd("git", ["commit", "-m", "init"], cd: dir, stderr_to_stdout: true)
+      {_, 0} = System.cmd("git", ["branch", "-M", "main"], cd: dir, stderr_to_stdout: true)
+      dir
+    end
+
+    defp make_bare_remote! do
+      dir = Path.join(System.tmp_dir!(), "git-remote-#{:erlang.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      {_, 0} = System.cmd("git", ["init", "--bare"], cd: dir, stderr_to_stdout: true)
+      dir
+    end
+
+    test "pushes branch to configured remote", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "active")
+      workspace = make_git_workspace!()
+      remote_path = make_bare_remote!()
+      {_, 0} = System.cmd("git", ["remote", "add", "origin", remote_path], cd: workspace)
+
+      assert %{"success" => true, "output" => output} =
+               DynamicTool.execute(
+                 "sardine_run_session",
+                 %{"operation" => "git_push", "session_id" => "abc", "branch" => "main"},
+                 workspace: workspace
+               )
+
+      assert is_binary(output)
+    after
+      :ok
+    end
+
+    test "defaults remote to origin when not specified", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "active")
+      workspace = make_git_workspace!()
+      remote_path = make_bare_remote!()
+      {_, 0} = System.cmd("git", ["remote", "add", "origin", remote_path], cd: workspace)
+
+      assert %{"success" => true} =
+               DynamicTool.execute(
+                 "sardine_run_session",
+                 %{"operation" => "git_push", "session_id" => "abc", "branch" => "main"},
+                 workspace: workspace
+               )
+    end
+
+    test "returns failure when workspace opt is not supplied" do
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "git_push",
+          "session_id" => "abc",
+          "branch" => "main"
+        })
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "workspace"
+    end
+
+    test "returns failure when branch is missing" do
+      response =
+        DynamicTool.execute(
+          "sardine_run_session",
+          %{"operation" => "git_push", "session_id" => "abc"},
+          workspace: "/tmp/fake"
+        )
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "branch"
+    end
+
+    test "rejects branch starting with -" do
+      response =
+        DynamicTool.execute(
+          "sardine_run_session",
+          %{
+            "operation" => "git_push",
+            "session_id" => "abc",
+            "branch" => "--upload-pack=evil"
+          },
+          workspace: "/tmp/fake"
+        )
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "'-'"
+    end
+
+    test "rejects branch containing .." do
+      response =
+        DynamicTool.execute(
+          "sardine_run_session",
+          %{"operation" => "git_push", "session_id" => "abc", "branch" => "main..evil"},
+          workspace: "/tmp/fake"
+        )
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "'..':"
+    end
+
+    test "returns git_push_failed when git exits non-zero", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "active")
+      workspace = make_git_workspace!()
+
+      response =
+        DynamicTool.execute(
+          "sardine_run_session",
+          %{"operation" => "git_push", "session_id" => "abc", "branch" => "main"},
+          workspace: workspace
+        )
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "git_push_failed"
     end
   end
 

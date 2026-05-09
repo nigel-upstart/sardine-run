@@ -743,7 +743,7 @@ Tool input shape:
 
 ```json
 {
-  "operation": "status | heartbeat | note | link | focus | next_step",
+  "operation": "status | heartbeat | note | link | focus | next_step | git_push",
   "session_id": "<traffic-control-session-id>",
   "status": "active | blocked | waiting | review | done | archived",
   "waiting_kind": "human | ci | review | external | other",
@@ -758,7 +758,9 @@ Tool input shape:
   "input_tokens": 123,
   "output_tokens": 456,
   "total_tokens": 579,
-  "value": "string for focus/next_step"
+  "value": "string for focus/next_step",
+  "branch": "branch-name-to-push",
+  "remote": "origin"
 }
 ```
 
@@ -771,6 +773,12 @@ Tool input shape:
 - `note` — `body` is required and is appended to `notes.md` for the session.
 - `link` — `label`, `link_kind`, and `url` are required and append an entry to `links.yaml`.
 - `focus` and `next_step` — `value` sets the field; an empty string clears it.
+- `git_push` — `branch` is required (branch name to push); `remote` is OPTIONAL and defaults to
+  `"origin"`. The orchestrator executes `git push <remote> <branch>` in the workspace on behalf
+  of the agent, so the agent's sandbox network restrictions do not apply. Branch and remote names
+  are validated: must not start with `-`, must not contain `..`, and must match
+  `[a-zA-Z0-9][a-zA-Z0-9._\-\/]*`. On success returns `{"success": true, "output": "..."}`. On
+  push failure returns `{"success": false, "error": {"kind": "git_push_failed", ...}}`.
 
 Tool result semantics:
 

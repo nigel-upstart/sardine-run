@@ -10,7 +10,7 @@ defmodule SardineRun.Codex.DynamicTool do
 
   @tool_name "sardine_run_session"
 
-  @operations ~w(status heartbeat note link focus next_step)
+  @operations ~w(status heartbeat note link focus next_step git_push)
   @statuses ~w(active blocked waiting review done archived)
   @waiting_kinds ~w(human ci review external other)
 
@@ -93,6 +93,14 @@ defmodule SardineRun.Codex.DynamicTool do
           "description" =>
             "Used by operation=focus and operation=next_step to set the field. " <>
               "Empty string clears the field."
+        },
+        "branch" => %{
+          "type" => "string",
+          "description" => "Required when operation=git_push. Local branch name to push (e.g. feat/my-feature)."
+        },
+        "remote" => %{
+          "type" => "string",
+          "description" => "Optional when operation=git_push. Remote name to push to (default: origin)."
         }
       }
     }
@@ -104,8 +112,8 @@ defmodule SardineRun.Codex.DynamicTool do
   def execute(tool, arguments, opts \\ [])
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
-  def execute(@tool_name, arguments, _opts) when is_map(arguments) do
-    handle_session_tool(arguments)
+  def execute(@tool_name, arguments, opts) when is_map(arguments) do
+    handle_session_tool(arguments, opts)
   end
 
   def execute(@tool_name, _arguments, _opts) do
@@ -124,16 +132,16 @@ defmodule SardineRun.Codex.DynamicTool do
     })
   end
 
-  defp handle_session_tool(args) do
+  defp handle_session_tool(args, opts) do
     with {:ok, session_id} <- require_string(args, "session_id"),
          {:ok, operation} <- require_enum(args, "operation", @operations) do
-      dispatch(operation, session_id, args)
+      dispatch(operation, session_id, args, opts)
     else
       {:error, reason} -> validation_failure(reason)
     end
   end
 
-  defp dispatch("status", session_id, args) do
+  defp dispatch("status", session_id, args, _opts) do
     case require_enum(args, "status", @statuses) do
       {:ok, status} ->
         waiting =
@@ -156,7 +164,7 @@ defmodule SardineRun.Codex.DynamicTool do
     end
   end
 
-  defp dispatch("heartbeat", session_id, args) do
+  defp dispatch("heartbeat", session_id, args, _opts) do
     runtime =
       %{
         "last_event" => Map.get(args, "last_event"),
@@ -175,7 +183,7 @@ defmodule SardineRun.Codex.DynamicTool do
     end
   end
 
-  defp dispatch("note", session_id, args) do
+  defp dispatch("note", session_id, args, _opts) do
     case require_string(args, "body") do
       {:ok, body} ->
         case SessionWriter.append_note(session_id, body) do
@@ -188,7 +196,7 @@ defmodule SardineRun.Codex.DynamicTool do
     end
   end
 
-  defp dispatch("link", session_id, args) do
+  defp dispatch("link", session_id, args, _opts) do
     with {:ok, label} <- require_string(args, "label"),
          {:ok, kind} <- require_string(args, "link_kind"),
          {:ok, url} <- require_string(args, "url") do
@@ -205,26 +213,86 @@ defmodule SardineRun.Codex.DynamicTool do
     end
   end
 
-  defp dispatch("focus", session_id, args) do
+  defp dispatch("focus", session_id, args, _opts) do
     case SessionWriter.update_field(session_id, "focus", Map.get(args, "value")) do
       :ok -> success(%{"session_id" => session_id, "operation" => "focus"})
       {:error, reason} -> writer_failure(reason)
     end
   end
 
-  defp dispatch("next_step", session_id, args) do
+  defp dispatch("next_step", session_id, args, _opts) do
     case SessionWriter.update_field(session_id, "next_step", Map.get(args, "value")) do
       :ok -> success(%{"session_id" => session_id, "operation" => "next_step"})
       {:error, reason} -> writer_failure(reason)
     end
   end
 
-  defp dispatch(operation, _session_id, _args) do
+  defp dispatch("git_push", session_id, args, opts) do
+    workspace = Keyword.get(opts, :workspace)
+    remote = Map.get(args, "remote", "origin")
+
+    with {:ok, branch} <- require_string(args, "branch"),
+         :ok <- validate_git_ref(branch),
+         :ok <- validate_git_ref(remote) do
+      case run_git_push(workspace, remote, branch) do
+        {:ok, output} ->
+          success(%{"session_id" => session_id, "output" => output})
+
+        {:error, :no_workspace} ->
+          validation_failure(%{
+            "field" => "workspace",
+            "message" => "workspace is not available for git_push"
+          })
+
+        {:error, {:git_push_failed, status, output}} ->
+          failure(%{
+            "error" => %{
+              "kind" => "git_push_failed",
+              "message" => "git push exited #{status}: #{output}"
+            }
+          })
+      end
+    else
+      {:error, reason} -> validation_failure(reason)
+    end
+  end
+
+  defp dispatch(operation, _session_id, _args, _opts) do
     validation_failure(%{
       "field" => "operation",
       "message" => "Unknown operation #{inspect(operation)}.",
       "allowed" => @operations
     })
+  end
+
+  defp validate_git_ref(ref) when is_binary(ref) do
+    cond do
+      String.starts_with?(ref, "-") ->
+        {:error, %{"message" => "git ref must not start with '-': #{inspect(ref)}"}}
+
+      String.contains?(ref, "..") ->
+        {:error, %{"message" => "git ref must not contain '..': #{inspect(ref)}"}}
+
+      not String.match?(ref, ~r/^[a-zA-Z0-9][a-zA-Z0-9._\-\/]*$/) ->
+        {:error, %{"message" => "git ref contains disallowed characters: #{inspect(ref)}"}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp run_git_push(nil, _remote, _branch) do
+    {:error, :no_workspace}
+  end
+
+  defp run_git_push(workspace, remote, branch) when is_binary(workspace) do
+    case System.cmd("git", ["push", remote, branch],
+           cd: workspace,
+           stderr_to_stdout: true
+         ) do
+      {output, 0} -> {:ok, String.trim(output)}
+      {output, status} -> {:error, {:git_push_failed, status, String.trim(output)}}
+    end
   end
 
   defp require_string(args, key) do
