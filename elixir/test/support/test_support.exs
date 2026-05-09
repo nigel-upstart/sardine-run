@@ -1,4 +1,4 @@
-defmodule SymphonyElixir.TestSupport do
+defmodule SardineRun.TestSupport do
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -6,43 +6,50 @@ defmodule SymphonyElixir.TestSupport do
       use ExUnit.Case
       import ExUnit.CaptureLog
 
-      alias SymphonyElixir.AgentRunner
-      alias SymphonyElixir.CLI
-      alias SymphonyElixir.Codex.AppServer
-      alias SymphonyElixir.Config
-      alias SymphonyElixir.HttpServer
-      alias SymphonyElixir.Linear.Client
-      alias SymphonyElixir.Linear.Issue
-      alias SymphonyElixir.Orchestrator
-      alias SymphonyElixir.PromptBuilder
-      alias SymphonyElixir.StatusDashboard
-      alias SymphonyElixir.Tracker
-      alias SymphonyElixir.Workflow
-      alias SymphonyElixir.WorkflowStore
-      alias SymphonyElixir.Workspace
+      alias SardineRun.AgentRunner
+      alias SardineRun.CLI
+      alias SardineRun.Codex.AppServer
+      alias SardineRun.Config
+      alias SardineRun.HttpServer
+      alias SardineRun.Tracker.Issue
+      alias SardineRun.Orchestrator
+      alias SardineRun.PromptBuilder
+      alias SardineRun.StatusDashboard
+      alias SardineRun.Tracker
+      alias SardineRun.Workflow
+      alias SardineRun.WorkflowStore
+      alias SardineRun.Workspace
 
-      import SymphonyElixir.TestSupport,
-        only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
+      import SardineRun.TestSupport,
+        only: [
+          write_workflow_file!: 1,
+          write_workflow_file!: 2,
+          restore_env: 2,
+          stop_default_http_server: 0,
+          make_state_repo!: 0,
+          make_state_repo!: 1,
+          write_session_yaml!: 3
+        ]
 
       setup do
         workflow_root =
           Path.join(
             System.tmp_dir!(),
-            "symphony-elixir-workflow-#{System.unique_integer([:positive])}"
+            "sardine-run-workflow-#{System.unique_integer([:positive])}"
           )
 
         File.mkdir_p!(workflow_root)
         workflow_file = Path.join(workflow_root, "WORKFLOW.md")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
-        if Process.whereis(SymphonyElixir.WorkflowStore), do: SymphonyElixir.WorkflowStore.force_reload()
+        if Process.whereis(SardineRun.WorkflowStore), do: SardineRun.WorkflowStore.force_reload()
         stop_default_http_server()
 
         on_exit(fn ->
-          Application.delete_env(:symphony_elixir, :workflow_file_path)
-          Application.delete_env(:symphony_elixir, :server_port_override)
-          Application.delete_env(:symphony_elixir, :memory_tracker_issues)
-          Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
+          Application.delete_env(:sardine_run, :workflow_file_path)
+          Application.delete_env(:sardine_run, :server_port_override)
+          Application.delete_env(:sardine_run, :memory_tracker_issues)
+          Application.delete_env(:sardine_run, :memory_tracker_recipient)
           File.rm_rf(workflow_root)
         end)
 
@@ -55,9 +62,9 @@ defmodule SymphonyElixir.TestSupport do
     workflow = workflow_content(overrides)
     File.write!(path, workflow)
 
-    if Process.whereis(SymphonyElixir.WorkflowStore) do
+    if Process.whereis(SardineRun.WorkflowStore) do
       try do
-        SymphonyElixir.WorkflowStore.force_reload()
+        SardineRun.WorkflowStore.force_reload()
       catch
         :exit, _reason -> :ok
       end
@@ -70,12 +77,12 @@ defmodule SymphonyElixir.TestSupport do
   def restore_env(key, value), do: System.put_env(key, value)
 
   def stop_default_http_server do
-    case Enum.find(Supervisor.which_children(SymphonyElixir.Supervisor), fn
-           {SymphonyElixir.HttpServer, _pid, _type, _modules} -> true
+    case Enum.find(Supervisor.which_children(SardineRun.Supervisor), fn
+           {SardineRun.HttpServer, _pid, _type, _modules} -> true
            _child -> false
          end) do
-      {SymphonyElixir.HttpServer, pid, _type, _modules} when is_pid(pid) ->
-        :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.HttpServer)
+      {SardineRun.HttpServer, pid, _type, _modules} when is_pid(pid) ->
+        :ok = Supervisor.terminate_child(SardineRun.Supervisor, SardineRun.HttpServer)
 
         if Process.alive?(pid) do
           Process.exit(pid, :normal)
@@ -88,19 +95,50 @@ defmodule SymphonyElixir.TestSupport do
     end
   end
 
+  @doc """
+  Create a temporary traffic-control state repo with a `sessions/` directory.
+  Returns the absolute path to the repo. Caller is responsible for cleanup
+  (use `on_exit/1` with `File.rm_rf!/1`).
+  """
+  def make_state_repo!(prefix \\ "tc-state") do
+    repo =
+      Path.join(
+        System.tmp_dir!(),
+        "#{prefix}-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(Path.join(repo, "sessions"))
+    repo
+  end
+
+  @doc """
+  Write a `session.yaml` file under `<repo>/sessions/<id>/session.yaml` from
+  the supplied flat map of fields. Returns the absolute path written.
+  """
+  def write_session_yaml!(repo, session_id, fields) do
+    dir = Path.join([repo, "sessions", session_id])
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "session.yaml")
+    File.write!(path, render_session_yaml(fields))
+    path
+  end
+
+  defp render_session_yaml(fields) do
+    fields
+    |> Enum.map_join("\n", fn {key, value} -> "#{to_string(key)}: #{yaml_value(value)}" end)
+    |> Kernel.<>("\n")
+  end
+
   defp workflow_content(overrides) do
     config =
       Keyword.merge(
         [
-          tracker_kind: "linear",
-          tracker_endpoint: "https://api.linear.app/graphql",
-          tracker_api_token: "token",
-          tracker_project_slug: "project",
-          tracker_assignee: nil,
-          tracker_active_states: ["Todo", "In Progress"],
-          tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+          tracker_kind: "traffic_control",
+          tracker_state_repo: Path.join(System.tmp_dir!(), "traffic-control-state"),
+          tracker_active_states: ["active"],
+          tracker_terminal_states: ["done", "archived"],
           poll_interval_ms: 30_000,
-          workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
+          workspace_root: Path.join(System.tmp_dir!(), "sardine_run_workspaces"),
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
@@ -108,7 +146,7 @@ defmodule SymphonyElixir.TestSupport do
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
           codex_command: "codex app-server",
-          codex_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
+          codex_approval_policy: "never",
           codex_thread_sandbox: "workspace-write",
           codex_turn_sandbox_policy: nil,
           codex_turn_timeout_ms: 3_600_000,
@@ -130,10 +168,7 @@ defmodule SymphonyElixir.TestSupport do
       )
 
     tracker_kind = Keyword.get(config, :tracker_kind)
-    tracker_endpoint = Keyword.get(config, :tracker_endpoint)
-    tracker_api_token = Keyword.get(config, :tracker_api_token)
-    tracker_project_slug = Keyword.get(config, :tracker_project_slug)
-    tracker_assignee = Keyword.get(config, :tracker_assignee)
+    tracker_state_repo = Keyword.get(config, :tracker_state_repo)
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
@@ -168,10 +203,7 @@ defmodule SymphonyElixir.TestSupport do
         "---",
         "tracker:",
         "  kind: #{yaml_value(tracker_kind)}",
-        "  endpoint: #{yaml_value(tracker_endpoint)}",
-        "  api_key: #{yaml_value(tracker_api_token)}",
-        "  project_slug: #{yaml_value(tracker_project_slug)}",
-        "  assignee: #{yaml_value(tracker_assignee)}",
+        "  state_repo: #{yaml_value(tracker_state_repo)}",
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "polling:",

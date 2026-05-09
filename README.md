@@ -1,40 +1,55 @@
-# Symphony
+# Sardine Run
 
-Symphony turns project work into isolated, autonomous implementation runs, allowing teams to manage
-work instead of supervising coding agents.
-
-[![Symphony demo video preview](.github/media/symphony-demo-poster.jpg)](.github/media/symphony-demo.mp4)
-
-_In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Linear board for work and spawns agents to handle the tasks. The agents complete the tasks and provide proof of work: CI status, PR review feedback, complexity analysis, and walkthrough videos. When accepted, the agents land the PR safely. Engineers do not need to supervise Codex; they can manage the work at a higher level._
+Sardine Run turns project work into isolated, autonomous coding-agent runs. It polls a Traffic
+Control state-repo for sessions, creates a workspace per session, and runs Codex inside each
+workspace until the session reaches a terminal state.
 
 > [!WARNING]
-> Symphony is a low-key engineering preview for testing in trusted environments.
+> Sardine Run is a low-key engineering preview for testing in trusted environments.
 
-## Running Symphony
+## How it works
 
-### Requirements
+1. Sardine Run reads sessions from a Traffic Control state-repo on disk
+   (`$TRAFFIC_CONTROL_STATE_REPO`, by default `~/code/traffic-control-state`).
+2. Each `sessions/<id>/session.yaml` file with a status in `tracker.active_states` is candidate
+   work.
+3. Sardine Run creates a workspace under `~/code/sardine-run-workspaces/<sanitized-id>` and
+   launches Codex in [App Server mode](https://developers.openai.com/codex/app-server/) inside it.
+4. Codex sees the workflow prompt and a single dynamic tool, `sardine_run_session`, which it uses
+   to update its assigned session: change status, append notes, record links, send heartbeats,
+   and set focus / next_step.
+5. When the session moves to `done` or `archived`, Sardine Run stops the agent and cleans the
+   workspace.
 
-Symphony works best in codebases that have adopted
-[harness engineering](https://openai.com/index/harness-engineering/). Symphony is the next step --
-moving from managing coding agents to managing work that needs to get done.
+There is no API, no token, no cloud tracker. Reads and writes happen against a local Git-tracked
+filesystem repo.
+
+## Running it
 
 ### Option 1. Make your own
 
-Tell your favorite coding agent to build Symphony in a programming language of your choice:
+Hand a coding agent the spec and ask it to build Sardine Run in the language of your choice:
 
-> Implement Symphony according to the following spec:
-> https://github.com/openai/symphony/blob/main/SPEC.md
+> Implement Sardine Run according to the following spec:
+> https://github.com/nigel-upstart/sardine-run/blob/main/SPEC.md
 
-### Option 2. Use our experimental reference implementation
+### Option 2. Use the Elixir reference implementation
 
-Check out [elixir/README.md](elixir/README.md) for instructions on how to set up your environment
-and run the Elixir-based Symphony implementation. You can also ask your favorite coding agent to
-help with the setup:
+See [`elixir/README.md`](elixir/README.md) for setup and run instructions.
 
-> Set up Symphony for my repository based on
-> https://github.com/openai/symphony/blob/main/elixir/README.md
+```bash
+git clone https://github.com/nigel-upstart/sardine-run
+cd sardine-run/elixir
+mise install
+mise exec -- mix setup
+mise exec -- mix build
+mise exec -- ./bin/sardine-run \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  ./WORKFLOW.md
+```
 
----
+The escript binary is `sardine-run`. By default it reads `WORKFLOW.md` from the current directory.
+Pass `--port 4000` to also start the LiveView dashboard at `http://localhost:4000`. The dashboard lists active and retrying sessions; drill into individual sessions at `/session/<issue_identifier>` to view live agent state, workspace git history, filtered logs, notes, and on-disk paths. While the dashboard is running, the orchestrator writes its base URL to `sardine_run.dashboard_url` on each session so the Traffic Control dashboard can render a back-link. Set `SARDINE_RUN_PUBLIC_HOSTNAME` to override the hostname when auto-detection isn't reachable.
 
 ## License
 
