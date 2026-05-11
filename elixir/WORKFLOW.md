@@ -49,6 +49,7 @@ The repos you may be working in:
 | `github.com/teamupstart/template-slack-bot-vercel` | `escape-velocity-api-XXX`, `slack_bot_vercel` |
 | `github.com/teamupstart/gen-ai-guild-slack-bot` | `GENAI-XXX` issues, bufmoji, guild |
 | `github.com/teamupstart/cicd-reusable-workflows` | `fix:` or `feat:` for CI/CD workflow pins and updates |
+| `github.com/nigel-upstart/sideromelane` | `fix:` or `feat:` for terminal/text-viewer UI issues |
 
 ## Workspace and repo setup
 
@@ -119,6 +120,10 @@ Operations:
   appends an entry to `sessions/{{ issue.identifier }}/links.yaml`.
 - `operation: focus` with `value` — sets the session's current focus (empty string clears it).
 - `operation: next_step` with `value` — sets the intended next step (empty string clears it).
+- `operation: git_push` with `branch` (required) and optional `remote` (default `origin`) —
+  the orchestrator runs `git push <remote> <branch>` in the workspace on the host, outside the
+  sandbox. Use this instead of bare `git push` when shell network or `.git` connectivity is
+  blocked inside the sandbox.
 
 Use `note` for narrative progress; use `focus` / `next_step` for the one-line summary fields.
 
