@@ -49,6 +49,7 @@ The repos you may be working in:
 | `github.com/teamupstart/template-slack-bot-vercel` | `escape-velocity-api-XXX`, `slack_bot_vercel` |
 | `github.com/teamupstart/gen-ai-guild-slack-bot` | `GENAI-XXX` issues, bufmoji, guild |
 | `github.com/teamupstart/cicd-reusable-workflows` | `fix:` or `feat:` for CI/CD workflow pins and updates |
+| `github.com/nigel-upstart/sideromelane` | `fix:` or `feat:` for terminal/text-viewer UI issues |
 
 ## Workspace and repo setup
 
