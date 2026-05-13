@@ -15,7 +15,7 @@ This directory contains the current Elixir/OTP implementation of Sardine Run, ba
    `~/code/sardine-run-workspaces`).
 3. Launches a coding agent inside the workspace. By default that is Codex in
    [App Server mode](https://developers.openai.com/codex/app-server/); for a configurable
-   share of dispatches (default 5%, see `agents.sampling.claude_probability` in
+   share of dispatches (default 5%, see `agent.sampling.claude_probability` in
    `WORKFLOW.md`) it launches the Claude Code CLI in headless stream-json mode and exposes
    the same `sardine_run_session` tool through a per-session stdio MCP bridge
    (`SardineRun.Claude.MCPServer`). The Claude wrapper script

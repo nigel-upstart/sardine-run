@@ -317,11 +317,7 @@ Changes SHOULD be re-applied at runtime and affect future tick scheduling withou
 - `max_retry_backoff_ms` (integer) — Default: `300000` (5 minutes).
 - `max_concurrent_agents_by_state` (map `state_name -> positive integer`) — Default: `{}`.
 
-Implementations MAY also accept a plural `agents` block as a sibling of
-`agent` and merge it into the same effective settings; the plural form exists
-so that nested sampling/policy maps stay readable.
-
-##### 5.3.5.1 `agents.sampling` (object, OPTIONAL)
+##### 5.3.5.1 `agent.sampling` (object, OPTIONAL)
 
 Probabilistic dispatch selector. When the implementation supports more than
 one worker backend, it MAY use this block to pick one per dispatch.
@@ -333,7 +329,7 @@ one worker backend, it MAY use this block to pick one per dispatch.
 #### 5.3.6 `claude` (object, OPTIONAL)
 
 Configuration for the Claude Code CLI worker backend. Required when
-`agents.sampling.claude_probability > 0.0`.
+`agent.sampling.claude_probability > 0.0`.
 
 - `command` (string shell command) — Default: `claude`. Launched via
   `bash -lc` in the workspace directory. Sardine Run appends
@@ -490,7 +486,7 @@ Validation checks:
 
 Implementations MAY support more than one coding-agent backend (for example,
 both Codex and Claude Code). When they do, each dispatch SHOULD select a
-backend independently using `agents.sampling.claude_probability` (or an
+backend independently using `agent.sampling.claude_probability` (or an
 equivalent named selector for additional backends). The selected backend's
 identifier MUST be recorded on the live session (§4.1.6 `worker_kind`) and
 MAY be exposed via the runtime/`sardine_run.worker_kind` block on

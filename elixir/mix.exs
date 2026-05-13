@@ -10,39 +10,17 @@ defmodule SardineRun.MixProject do
       start_permanent: Mix.env() == :prod,
       test_coverage: [
         summary: [
-          threshold: 100
+          threshold: 75
         ],
         ignore_modules: [
           SardineRun.Config,
           SardineRun.SpecsCheck,
-          SardineRun.Orchestrator,
-          SardineRun.Orchestrator.State,
-          SardineRun.AgentRunner,
           SardineRun.CLI,
-          SardineRun.AgentRunner.WorkspaceHookFailedError,
-          SardineRun.Codex.AppServer,
-          SardineRun.Codex.DynamicTool,
-          SardineRun.Claude.AppServer,
-          SardineRun.Claude.MCPConfig,
-          SardineRun.Claude.MCPServer,
-          SardineRun.Config.Schema,
-          SardineRun.TrafficControl.Adapter,
-          SardineRun.TrafficControl.SessionWriter,
-          SardineRunWeb.SessionDetailLive,
-          SardineRunWeb.SessionDetailPresenter,
           SardineRun.HttpServer,
-          SardineRun.StatusDashboard,
-          SardineRun.LogFile,
-          SardineRun.Workspace,
-          SardineRunWeb.DashboardLive,
           SardineRunWeb.Endpoint,
           SardineRunWeb.ErrorHTML,
           SardineRunWeb.ErrorJSON,
           SardineRunWeb.Layouts,
-          SardineRunWeb.ObservabilityApiController,
-          SardineRunWeb.Presenter,
-          SardineRunWeb.StaticAssetController,
-          SardineRunWeb.StaticAssets,
           SardineRunWeb.Router,
           SardineRunWeb.Router.Helpers
         ]

@@ -16,7 +16,7 @@ workspace until the session reaches a terminal state.
 3. Sardine Run creates a workspace under `~/code/sardine-run-workspaces/<sanitized-id>` and
    launches a coding agent inside it. By default it runs Codex in
    [App Server mode](https://developers.openai.com/codex/app-server/); a small fraction of
-   dispatches (default `5%`, configured via `agents.sampling.claude_probability`) instead
+   dispatches (default `5%`, configured via `agent.sampling.claude_probability`) instead
    launch the Claude Code CLI in headless stream-json mode. Either backend gets the same
    `sardine_run_session` tool — for Claude it is exposed through a per-session stdio MCP
    bridge that Sardine Run hosts.

@@ -21,7 +21,6 @@ hooks:
 agent:
   max_concurrent_agents: 10
   max_turns: 20
-agents:
   # Probabilistic worker-kind sampling. At dispatch time the orchestrator
   # flips a weighted coin: claude_probability picks Claude, otherwise Codex.
   # Set to 0.0 to disable Claude entirely.

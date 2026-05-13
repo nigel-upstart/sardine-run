@@ -331,7 +331,6 @@ defmodule SardineRun.Config.Schema do
   def parse(config) when is_map(config) do
     config
     |> normalize_keys()
-    |> alias_top_level_keys()
     |> drop_nil_values()
     |> changeset()
     |> apply_action(:validate)
@@ -457,30 +456,6 @@ defmodule SardineRun.Config.Schema do
 
   defp normalize_key(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_key(value), do: to_string(value)
-
-  # Merges plural `agents:` into singular `agent:` so workflow authors can use
-  # either form. Workstream A intentionally adds `agents.sampling.claude_probability`,
-  # but the existing schema field is named `agent`; this keeps the schema
-  # single-source while honoring the front-matter naming chosen in the plan.
-  defp alias_top_level_keys(config) when is_map(config) do
-    case Map.pop(config, "agents") do
-      {nil, rest} ->
-        rest
-
-      {plural, rest} ->
-        singular = Map.get(rest, "agent", %{}) || %{}
-        merged = deep_merge_map(singular, plural)
-        Map.put(rest, "agent", merged)
-    end
-  end
-
-  defp deep_merge_map(left, right) when is_map(left) and is_map(right) do
-    Map.merge(left, right, fn _k, l, r ->
-      if is_map(l) and is_map(r), do: deep_merge_map(l, r), else: r
-    end)
-  end
-
-  defp deep_merge_map(_left, right), do: right
 
   defp drop_nil_values(value) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, nested}, acc ->
