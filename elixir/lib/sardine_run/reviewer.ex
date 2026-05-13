@@ -35,9 +35,15 @@ defmodule SardineRun.Reviewer do
   end
 
   defp render_vars(issue, _opts) do
+    feedback = load_pending_feedback(issue)
+
     %{
       "issue" => issue |> Map.from_struct() |> to_solid_map(),
-      "pending_feedback" => load_pending_feedback(issue)
+      "pending_feedback" => feedback,
+      # Surface the snapshot timestamp directly so the prompt can warn the
+      # agent if the data is potentially stale (the watcher may have polled
+      # several minutes before this turn started).
+      "snapshot_at" => Map.get(feedback, "snapshot_at")
     }
   end
 
@@ -51,11 +57,12 @@ defmodule SardineRun.Reviewer do
     feedback
     |> Map.put_new("threads", [])
     |> Map.put_new("failing_checks", [])
+    |> Map.put_new("snapshot_at", nil)
     |> to_solid_map()
   end
 
   defp load_pending_feedback(_issue) do
-    %{"threads" => [], "failing_checks" => []} |> to_solid_map()
+    %{"threads" => [], "failing_checks" => [], "snapshot_at" => nil} |> to_solid_map()
   end
 
   defp load_template do

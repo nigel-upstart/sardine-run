@@ -112,9 +112,10 @@ defmodule SardineRun.Review.GitHub do
 
   @doc """
   Lists failing checks on a PR. Returns entries shaped like
-  `%{"name" => "ci/test", "url" => "…", "conclusion" => "failure"}`.
+  `%{"name" => "ci/test", "state" => "FAILURE", "link" => "…"}` — the
+  fields are `name`, `state`, and `link`, matching `gh pr checks --json`.
 
-  Includes checks whose conclusion is `failure` or `timed_out`; ignores
+  Includes checks whose state is `FAILURE` or `TIMED_OUT`; ignores
   cancelled, skipped, neutral, and in-progress runs so we only nudge the
   reviewer when there's something to actually fix.
   """

@@ -404,8 +404,12 @@ The Markdown body of `WORKFLOW.md` is the per-session prompt template.
 Rendering requirements:
 
 - Use a strict template engine (Liquid-compatible semantics are sufficient).
-- Unknown variables MUST fail rendering.
-- Unknown filters MUST fail rendering.
+- Unknown variables MUST fail rendering for the default `WORKFLOW.md` prompt.
+- Unknown filters MUST fail rendering for all prompts.
+- The reviewer prompt (§6.6, `review.prompt_file`) MAY render with lenient
+  variable resolution because per-thread snapshot fields can legitimately be
+  `nil` when a comment lacks a path/line (e.g. PR-level reviews). Strict
+  filter resolution still applies.
 
 Template input variables:
 
@@ -898,7 +902,7 @@ Tool input shape:
 {
   "operation": "status | heartbeat | note | link | focus | next_step | git_push | list_review_comments | reply_to_comment | resolve_thread | request_human_help",
   "session_id": "<traffic-control-session-id>",
-  "status": "active | blocked | waiting | review | review_pending | done | archived",
+  "status": "active | blocked | waiting | review | done | archived",
   "waiting_kind": "human | ci | review | external | other",
   "waiting_note": "free text",
   "body": "markdown body for note / reply / human-help request",
@@ -923,7 +927,9 @@ Tool input shape:
 `operation` and `session_id` are always required. Per-operation requirements:
 
 - `status` — `status` is required. When `status == "waiting"`, `waiting_kind` defaults to
-  `"other"` and `waiting_note` is OPTIONAL.
+  `"other"` and `waiting_note` is OPTIONAL. `review_pending` is intentionally NOT a valid
+  argument: it is a watcher-derived state and the agent transitions out of it (back to
+  `review`, or onward to `waiting`/`done`) rather than into it.
 - `heartbeat` — all runtime fields (`last_event`, `last_message`, `last_error`, token counters)
   are OPTIONAL; the writer records whatever is supplied.
 - `note` — `body` is required and is appended to `notes.md` for the session.

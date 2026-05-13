@@ -53,9 +53,10 @@ defmodule SardineRun.Application do
       []
     end
   rescue
-    # Config can fail to parse on early boot (e.g. missing WORKFLOW.md);
-    # the orchestrator surfaces those errors. Don't crash the supervisor
-    # just because the watcher couldn't be added.
-    _ -> []
+    # Config.settings! raises ArgumentError on parse failure (e.g. missing
+    # WORKFLOW.md at early boot). The Orchestrator surfaces those errors
+    # itself; the watcher just opts out so the rest of the supervisor can
+    # come up. Any other exception is a real bug and should propagate.
+    ArgumentError -> []
   end
 end

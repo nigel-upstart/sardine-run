@@ -166,6 +166,42 @@ defmodule SardineRun.Codex.DynamicToolTest do
       assert %{"success" => false, "output" => output} = response
       assert output =~ "ghost" or output =~ "not found" or output =~ "enoent"
     end
+
+    test "clears pending_feedback.yaml when transitioning out of review_pending", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      :ok =
+        SessionWriter.write_pending_feedback("abc", %{
+          "threads" => [%{"thread_id" => "PRRT_A"}],
+          "failing_checks" => []
+        })
+
+      assert %{"success" => true} =
+               DynamicTool.execute("sardine_run_session", %{
+                 "operation" => "status",
+                 "session_id" => "abc",
+                 "status" => "review"
+               })
+
+      assert {:ok, %{}} = SessionWriter.read_pending_feedback("abc")
+    end
+
+    test "leaves pending_feedback.yaml alone on transitions to non-terminal states", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "active")
+
+      :ok =
+        SessionWriter.write_pending_feedback("abc", %{"threads" => [%{"thread_id" => "PRRT_B"}]})
+
+      assert %{"success" => true} =
+               DynamicTool.execute("sardine_run_session", %{
+                 "operation" => "status",
+                 "session_id" => "abc",
+                 "status" => "blocked"
+               })
+
+      assert {:ok, %{"threads" => [%{"thread_id" => "PRRT_B"}]}} =
+               SessionWriter.read_pending_feedback("abc")
+    end
   end
 
   describe "execute/3 heartbeat operation" do

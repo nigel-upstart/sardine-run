@@ -59,14 +59,24 @@ defmodule SardineRun.ReviewWatcher do
   end
 
   @doc """
-  Runs one watcher tick synchronously and returns a summary map listing
-  which session IDs were flipped to `review_pending` (`:flipped`), which
-  were checked but had no new feedback (`:clean`), and which were skipped
-  for lack of a PR link (`:skipped_no_pr`).
+  Runs one watcher tick synchronously and returns a summary map listing:
+
+  - `:flipped` — session IDs that were transitioned to `review_pending`.
+  - `:clean` — session IDs polled with no new feedback.
+  - `:skipped_no_pr` — session IDs skipped because no `link_kind: pr`
+    link was recorded.
+  - `:errored` — session IDs whose poll failed (state-repo error, malformed
+    PR URL, etc.). Useful for operators to detect persistent gh / repo
+    failures; counts non-zero here mean the loop is silently dropping work.
 
   Intended for tests and ad-hoc operator invocations from `iex -S mix`.
   """
-  @spec tick_now(GenServer.server()) :: %{flipped: [String.t()], clean: [String.t()], skipped_no_pr: [String.t()]}
+  @spec tick_now(GenServer.server()) :: %{
+          flipped: [String.t()],
+          clean: [String.t()],
+          skipped_no_pr: [String.t()],
+          errored: [String.t()]
+        }
   def tick_now(server \\ @default_name) do
     GenServer.call(server, :tick_now, 30_000)
   end
@@ -126,6 +136,7 @@ defmodule SardineRun.ReviewWatcher do
   defp classify({:flipped, _}, %Issue{id: id}, summary), do: %{summary | flipped: [id | summary.flipped]}
   defp classify(:clean, %Issue{id: id}, summary), do: %{summary | clean: [id | summary.clean]}
   defp classify(:skipped_no_pr, %Issue{id: id}, summary), do: %{summary | skipped_no_pr: [id | summary.skipped_no_pr]}
+  defp classify(:error, %Issue{id: id}, summary), do: %{summary | errored: [id | summary.errored]}
   defp classify(_other, _issue, summary), do: summary
 
   defp process_issue(%Issue{id: session_id}, state) when is_binary(session_id) do
@@ -216,5 +227,5 @@ defmodule SardineRun.ReviewWatcher do
 
   defp default_tracker(states), do: Tracker.fetch_issues_by_states(states)
 
-  defp empty_summary, do: %{flipped: [], clean: [], skipped_no_pr: []}
+  defp empty_summary, do: %{flipped: [], clean: [], skipped_no_pr: [], errored: []}
 end

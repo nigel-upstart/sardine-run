@@ -38,6 +38,7 @@ defmodule SardineRun.ReviewWatcherTest do
       assert summary.flipped == ["abc"]
       assert summary.clean == []
       assert summary.skipped_no_pr == []
+      assert summary.errored == []
 
       raw = File.read!(session_path)
       assert raw =~ ~r/^status: review_pending$/m
@@ -89,7 +90,31 @@ defmodule SardineRun.ReviewWatcherTest do
       pid = start_watcher!(tracker: fn _ -> {:ok, []} end, gh_runner: fn _ -> flunk("unreachable") end)
 
       summary = ReviewWatcher.tick_now(pid)
-      assert summary == %{flipped: [], clean: [], skipped_no_pr: []}
+      assert summary == %{flipped: [], clean: [], skipped_no_pr: [], errored: []}
+    end
+
+    test "buckets a session with an unparseable PR link as :errored", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review")
+
+      :ok =
+        SessionWriter.append_link("abc", %{
+          "label" => "PR",
+          "kind" => "pr",
+          "url" => "not-a-github-url"
+        })
+
+      issue = %Issue{id: "abc", state: "review"}
+
+      pid =
+        start_watcher!(
+          tracker: fn _ -> {:ok, [issue]} end,
+          gh_runner: fn _ -> flunk("gh should not be called when PR URL is unparseable") end
+        )
+
+      summary = ReviewWatcher.tick_now(pid)
+      assert summary.errored == ["abc"]
+      assert summary.flipped == []
+      assert summary.skipped_no_pr == []
     end
 
     test "absorbs gh failures and leaves the session as-is", %{state_repo: state_repo} do
@@ -109,7 +134,7 @@ defmodule SardineRun.ReviewWatcherTest do
       pid = start_watcher!(tracker: fn _ -> {:ok, [issue]} end, gh_runner: gh_runner)
 
       summary = ReviewWatcher.tick_now(pid)
-      assert summary == %{flipped: [], clean: ["abc"], skipped_no_pr: []}
+      assert summary == %{flipped: [], clean: ["abc"], skipped_no_pr: [], errored: []}
 
       raw = File.read!(session_path)
       assert raw =~ ~r/^status: "?review"?$/m

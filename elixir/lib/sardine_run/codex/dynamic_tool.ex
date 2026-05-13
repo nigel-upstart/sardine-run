@@ -195,14 +195,30 @@ defmodule SardineRun.Codex.DynamicTool do
           end
 
         case SessionWriter.update_status(session_id, status, waiting) do
-          :ok -> success(%{"session_id" => session_id, "status" => status})
-          {:error, reason} -> writer_failure(reason)
+          :ok ->
+            # The reviewer transitions back to `review` (or onward to
+            # `waiting`/`done`/`archived`) after addressing pending feedback.
+            # Clear the stale snapshot so the next watcher tick re-evaluates
+            # from a clean slate. Idempotent for sessions that never had a
+            # snapshot (clear is a no-op when the file doesn't exist).
+            _ = maybe_clear_pending_feedback(session_id, status)
+            success(%{"session_id" => session_id, "status" => status})
+
+          {:error, reason} ->
+            writer_failure(reason)
         end
 
       {:error, reason} ->
         validation_failure(reason)
     end
   end
+
+  defp maybe_clear_pending_feedback(session_id, status)
+       when status in ~w(review waiting done archived) do
+    SessionWriter.clear_pending_feedback(session_id)
+  end
+
+  defp maybe_clear_pending_feedback(_session_id, _status), do: :ok
 
   defp dispatch("heartbeat", session_id, args, _opts) do
     runtime =

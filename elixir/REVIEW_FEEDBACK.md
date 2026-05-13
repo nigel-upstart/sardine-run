@@ -8,6 +8,9 @@ A pull request is open for this session and has **unresolved feedback**. Your jo
 - Identifier: `{{ issue.identifier }}`
 - Title: `{{ issue.title }}`
 - State: `{{ issue.state }}`
+- Snapshot taken at: `{{ snapshot_at }}` (if this looks old, finish the threads
+  in this batch and call `status: review` — the watcher will re-poll for any
+  newer feedback on its next tick.)
 
 ## Pending threads ({{ pending_feedback.threads.size }})
 
