@@ -767,7 +767,8 @@ defmodule SardineRun.Orchestrator do
            AgentRunner.run(issue, recipient,
              attempt: attempt,
              worker_host: worker_host,
-             worker_module: worker_module
+             worker_module: worker_module,
+             worker_kind: worker_kind
            )
          end) do
       {:ok, pid} ->

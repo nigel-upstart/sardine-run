@@ -334,6 +334,7 @@ defmodule SardineRunWeb.DashboardLive do
     case worker_kind_normalized(worker_kind) do
       "claude" -> "#{base} worker-kind-claude"
       "codex" -> "#{base} worker-kind-codex"
+      "reviewer" -> "#{base} worker-kind-reviewer"
       _ -> base
     end
   end
@@ -341,6 +342,7 @@ defmodule SardineRunWeb.DashboardLive do
   defp worker_kind_label(worker_kind) do
     case worker_kind_normalized(worker_kind) do
       "" -> "[?]"
+      "reviewer" -> "🐡 [reviewer]"
       kind -> "[#{kind}]"
     end
   end

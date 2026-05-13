@@ -41,7 +41,10 @@ defmodule SardineRun.AgentRunner do
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     worker_module = Keyword.get(opts, :worker_module, @default_worker_module)
-    worker_kind = worker_module.kind()
+    # Prefer an explicit :worker_kind from the dispatcher (the orchestrator
+    # passes it to distinguish :reviewer from the backend's intrinsic kind);
+    # fall back to the module's own kind/0 for tests that supply only :worker_module.
+    worker_kind = Keyword.get(opts, :worker_kind) || worker_module.kind()
 
     Logger.info("🐠 Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)} worker_kind=#{worker_kind}")
 
@@ -96,9 +99,11 @@ defmodule SardineRun.AgentRunner do
   defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host, worker_module) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+    worker_kind = Keyword.get(opts, :worker_kind) || worker_module.kind()
 
     ctx = %{
       worker_module: worker_module,
+      worker_kind: worker_kind,
       workspace: workspace,
       codex_update_recipient: codex_update_recipient,
       opts: opts,
@@ -118,6 +123,7 @@ defmodule SardineRun.AgentRunner do
   defp do_run_codex_turns(ctx, app_session, issue, turn_number) do
     %{
       worker_module: worker_module,
+      worker_kind: worker_kind,
       workspace: workspace,
       codex_update_recipient: codex_update_recipient,
       opts: opts,
@@ -125,7 +131,7 @@ defmodule SardineRun.AgentRunner do
       max_turns: max_turns
     } = ctx
 
-    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+    prompt = build_turn_prompt(issue, opts, turn_number, max_turns, worker_kind)
 
     with {:ok, turn_session} <-
            worker_module.run_turn(
@@ -156,9 +162,15 @@ defmodule SardineRun.AgentRunner do
     end
   end
 
-  defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)
+  defp build_turn_prompt(issue, opts, 1, _max_turns, :reviewer) do
+    SardineRun.Reviewer.prompt(issue, opts)
+  end
 
-  defp build_turn_prompt(_issue, _opts, turn_number, max_turns) do
+  defp build_turn_prompt(issue, opts, 1, _max_turns, _worker_kind) do
+    PromptBuilder.build_prompt(issue, opts)
+  end
+
+  defp build_turn_prompt(_issue, _opts, turn_number, max_turns, _worker_kind) do
     """
     Continuation guidance:
 
