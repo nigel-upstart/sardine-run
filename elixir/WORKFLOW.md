@@ -21,6 +21,12 @@ hooks:
 agent:
   max_concurrent_agents: 10
   max_turns: 20
+agents:
+  # Probabilistic worker-kind sampling. At dispatch time the orchestrator
+  # flips a weighted coin: claude_probability picks Claude, otherwise Codex.
+  # Set to 0.0 to disable Claude entirely.
+  sampling:
+    claude_probability: 0.05
 codex:
   command: "$HOME/repos/nigel-upstart/sardine-run/elixir/scripts/codex-launch.sh"
   approval_policy: never
@@ -31,6 +37,17 @@ codex:
   network_access: true
   # turn_sandbox_policy intentionally unset: Elixir injects a default with
   # writableRoots=[<workspace>], readOnlyAccess=fullAccess, networkAccess=<above>.
+claude:
+  # Drives the Claude Code CLI in headless stream-json mode. See
+  # SardineRun.Claude.AppServer. `effort` is exported as CLAUDE_REASONING_EFFORT
+  # because there is no stable CLI flag for it today.
+  command: "$HOME/repos/nigel-upstart/sardine-run/elixir/scripts/claude-launch.sh"
+  model: sonnet
+  effort: high
+  permission_mode: bypassPermissions
+  turn_timeout_ms: 3600000
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
 ---
 
 You are working on a Traffic Control session `{{ issue.identifier }}`.

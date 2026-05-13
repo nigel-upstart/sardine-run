@@ -101,6 +101,7 @@ defmodule SardineRunWeb.Presenter do
       issue_identifier: entry.identifier,
       state: entry.state,
       worker_host: Map.get(entry, :worker_host),
+      worker_kind: Map.get(entry, :worker_kind),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: entry.session_id,
       turn_count: Map.get(entry, :turn_count, 0),
@@ -131,6 +132,7 @@ defmodule SardineRunWeb.Presenter do
   defp running_issue_payload(running) do
     %{
       worker_host: Map.get(running, :worker_host),
+      worker_kind: Map.get(running, :worker_kind),
       workspace_path: Map.get(running, :workspace_path),
       session_id: running.session_id,
       turn_count: Map.get(running, :turn_count, 0),

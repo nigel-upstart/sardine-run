@@ -190,6 +190,8 @@ State tracked while a coding-agent subprocess is running.
 - `session_id` (string, `<thread_id>-<turn_id>`)
 - `thread_id` (string)
 - `turn_id` (string)
+- `worker_kind` (string or null) — the agent backend bound to this session
+  (for example `codex`, `claude`). Selected at dispatch time per §6.5.
 - `codex_app_server_pid` (string or null)
 - `last_codex_event` (string or null)
 - `last_codex_timestamp` (timestamp or null)
@@ -315,7 +317,39 @@ Changes SHOULD be re-applied at runtime and affect future tick scheduling withou
 - `max_retry_backoff_ms` (integer) — Default: `300000` (5 minutes).
 - `max_concurrent_agents_by_state` (map `state_name -> positive integer`) — Default: `{}`.
 
-#### 5.3.6 `codex` (object)
+Implementations MAY also accept a plural `agents` block as a sibling of
+`agent` and merge it into the same effective settings; the plural form exists
+so that nested sampling/policy maps stay readable.
+
+##### 5.3.5.1 `agents.sampling` (object, OPTIONAL)
+
+Probabilistic dispatch selector. When the implementation supports more than
+one worker backend, it MAY use this block to pick one per dispatch.
+
+- `claude_probability` (float in `[0.0, 1.0]`) — Default: `0.05`. Probability
+  that a dispatch picks the Claude worker; otherwise it falls back to the
+  Codex worker. Set to `0.0` to disable Claude entirely.
+
+#### 5.3.6 `claude` (object, OPTIONAL)
+
+Configuration for the Claude Code CLI worker backend. Required when
+`agents.sampling.claude_probability > 0.0`.
+
+- `command` (string shell command) — Default: `claude`. Launched via
+  `bash -lc` in the workspace directory. Sardine Run appends
+  `--mcp-config <path>` so the per-session `sardine_run_session` MCP bridge
+  is loaded.
+- `model` (string) — Default: `sonnet`. Forwarded to the CLI via `--model`.
+- `effort` (string) — Default: `high`. Exported as the
+  `CLAUDE_REASONING_EFFORT` environment variable; there is no stable CLI
+  flag for reasoning effort today.
+- `permission_mode` (string) — Default: `bypassPermissions`. Forwarded via
+  `--permission-mode`.
+- `turn_timeout_ms` (integer) — Default: `3600000` (1 hour).
+- `read_timeout_ms` (integer) — Default: `5000`.
+- `stall_timeout_ms` (integer) — Default: `300000` (5 minutes).
+
+#### 5.3.7 `codex` (object)
 
 For Codex-owned config values such as `approval_policy`, `thread_sandbox`, and
 `turn_sandbox_policy`, supported values are defined by the targeted Codex app-server version.
@@ -451,6 +485,19 @@ Validation checks:
 - `codex.turn_timeout_ms`: integer, default `3600000`.
 - `codex.read_timeout_ms`: integer, default `5000`.
 - `codex.stall_timeout_ms`: integer, default `300000`.
+
+### 6.5 Probabilistic Worker Selection (OPTIONAL)
+
+Implementations MAY support more than one coding-agent backend (for example,
+both Codex and Claude Code). When they do, each dispatch SHOULD select a
+backend independently using `agents.sampling.claude_probability` (or an
+equivalent named selector for additional backends). The selected backend's
+identifier MUST be recorded on the live session (§4.1.6 `worker_kind`) and
+MAY be exposed via the runtime/`sardine_run.worker_kind` block on
+`session.yaml`, so operators can see which backend handled the run.
+
+Selection is per-dispatch and bound for the entire worker lifetime, including
+continuation turns; the runtime MUST NOT swap workers mid-session.
 
 ## 7. Orchestration State Machine
 

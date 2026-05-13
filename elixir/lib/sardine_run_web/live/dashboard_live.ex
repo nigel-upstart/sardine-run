@@ -152,7 +152,12 @@ defmodule SardineRunWeb.DashboardLive do
                   <tr :for={entry <- @payload.running}>
                     <td>
                       <div class="issue-stack">
-                        <span class="issue-id"><%= entry.issue_identifier %></span>
+                        <span class="issue-id">
+                          <%= entry.issue_identifier %>
+                          <span class={worker_kind_badge_class(entry.worker_kind)}>
+                            <%= worker_kind_label(entry.worker_kind) %>
+                          </span>
+                        </span>
                         <a class="issue-link" href={"/session/#{entry.issue_identifier}"}>View session</a>
                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
                       </div>
@@ -321,6 +326,29 @@ defmodule SardineRunWeb.DashboardLive do
       String.contains?(normalized, ["todo", "queued", "pending", "retry"]) -> "#{base} state-badge-warning"
       true -> base
     end
+  end
+
+  defp worker_kind_badge_class(worker_kind) do
+    base = "state-badge worker-kind-badge"
+
+    case worker_kind_normalized(worker_kind) do
+      "claude" -> "#{base} worker-kind-claude"
+      "codex" -> "#{base} worker-kind-codex"
+      _ -> base
+    end
+  end
+
+  defp worker_kind_label(worker_kind) do
+    case worker_kind_normalized(worker_kind) do
+      "" -> "[?]"
+      kind -> "[#{kind}]"
+    end
+  end
+
+  defp worker_kind_normalized(nil), do: ""
+
+  defp worker_kind_normalized(worker_kind) do
+    worker_kind |> to_string() |> String.trim() |> String.downcase()
   end
 
   defp schedule_runtime_tick do

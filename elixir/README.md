@@ -13,14 +13,20 @@ This directory contains the current Elixir/OTP implementation of Sardine Run, ba
    `~/code/traffic-control-state`) for sessions whose `status` is in `tracker.active_states`.
 2. Creates a workspace per session under `workspace.root` (recommended:
    `~/code/sardine-run-workspaces`).
-3. Launches Codex in [App Server mode](https://developers.openai.com/codex/app-server/) inside the
-   workspace.
+3. Launches a coding agent inside the workspace. By default that is Codex in
+   [App Server mode](https://developers.openai.com/codex/app-server/); for a configurable
+   share of dispatches (default 5%, see `agents.sampling.claude_probability` in
+   `WORKFLOW.md`) it launches the Claude Code CLI in headless stream-json mode and exposes
+   the same `sardine_run_session` tool through a per-session stdio MCP bridge
+   (`SardineRun.Claude.MCPServer`). The Claude wrapper script
+   `scripts/claude-launch.sh` reads `CLAUDE_REASONING_EFFORT` (default `high`) because
+   there is no stable CLI flag for reasoning effort today.
 4. Renders the `WORKFLOW.md` prompt body with the session's `Issue` record and sends it as the
    first turn.
 5. Advertises one client-side dynamic tool, `sardine_run_session`, that the agent uses to manage
    its assigned session (status, heartbeat, note, link, focus, next_step).
-6. Keeps Codex running on the session until it reaches a terminal status (`done`, `archived` by
-   default).
+6. Keeps the agent running on the session until it reaches a terminal status (`done`, `archived`
+   by default).
 
 If a claimed session moves to a terminal state, Sardine Run stops the active agent and cleans the
 matching workspace.
