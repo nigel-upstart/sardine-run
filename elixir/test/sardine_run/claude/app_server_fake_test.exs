@@ -4,22 +4,15 @@ defmodule SardineRun.Claude.AppServerFakeTest do
   alias SardineRun.Claude.AppServer
 
   setup do
-    workspace_root =
-      Path.join(System.tmp_dir!(), "sardine-run-claude-test-#{System.unique_integer([:positive])}")
-
+    workspace_root = make_unique_tmp_dir!("sardine-run-claude-test")
     workspace = Path.join(workspace_root, "session")
     File.mkdir_p!(workspace)
-
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
 
     state_repo = make_state_repo!()
     previous_env = System.get_env("TRAFFIC_CONTROL_STATE_REPO")
     System.delete_env("TRAFFIC_CONTROL_STATE_REPO")
 
-    on_exit(fn ->
-      restore_env("TRAFFIC_CONTROL_STATE_REPO", previous_env)
-      File.rm_rf!(state_repo)
-    end)
+    on_exit(fn -> restore_env("TRAFFIC_CONTROL_STATE_REPO", previous_env) end)
 
     {:ok, workspace: workspace, workspace_root: workspace_root, state_repo: state_repo}
   end

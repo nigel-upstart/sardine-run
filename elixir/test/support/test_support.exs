@@ -28,6 +28,7 @@ defmodule SardineRun.TestSupport do
           stop_default_http_server: 0,
           make_state_repo!: 0,
           make_state_repo!: 1,
+          make_unique_tmp_dir!: 1,
           write_session_yaml!: 3
         ]
 
@@ -96,17 +97,29 @@ defmodule SardineRun.TestSupport do
   end
 
   @doc """
+  Create a uniquely-named temporary directory and register `on_exit`
+  cleanup. Returns the absolute path.
+
+  Uses `:crypto.strong_rand_bytes/1` for the suffix because
+  `System.unique_integer/1` is only unique within a single VM — dir
+  names collide with leftover dirs from prior `mix test` runs, which
+  silently breaks `git init` / `git add` (see test/.../dynamic_tool_test.exs).
+  """
+  @spec make_unique_tmp_dir!(String.t()) :: String.t()
+  def make_unique_tmp_dir!(prefix) when is_binary(prefix) do
+    suffix = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+    dir = Path.join(System.tmp_dir!(), "#{prefix}-#{suffix}")
+    File.mkdir_p!(dir)
+    ExUnit.Callbacks.on_exit(fn -> File.rm_rf(dir) end)
+    dir
+  end
+
+  @doc """
   Create a temporary traffic-control state repo with a `sessions/` directory.
-  Returns the absolute path to the repo. Caller is responsible for cleanup
-  (use `on_exit/1` with `File.rm_rf!/1`).
+  Cleanup happens automatically via `on_exit`.
   """
   def make_state_repo!(prefix \\ "tc-state") do
-    repo =
-      Path.join(
-        System.tmp_dir!(),
-        "#{prefix}-#{System.unique_integer([:positive])}"
-      )
-
+    repo = make_unique_tmp_dir!(prefix)
     File.mkdir_p!(Path.join(repo, "sessions"))
     repo
   end

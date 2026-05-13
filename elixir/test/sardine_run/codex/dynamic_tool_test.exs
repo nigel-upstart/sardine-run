@@ -356,21 +356,6 @@ defmodule SardineRun.Codex.DynamicToolTest do
       dir
     end
 
-    # Collision-resistant temp dir: `:erlang.unique_integer` is only unique
-    # *within* a VM, so dir numbers collide with leftover dirs from prior
-    # `mix test` runs (`/tmp/git-ws-228` from yesterday meets the new VM's
-    # 228 today → `git init` no-op's on the pre-existing `.git`, `git add`
-    # finds README.md already tracked, the index stays empty, and `git commit`
-    # fails with "nothing to commit"). Adding 8 random bytes makes collisions
-    # astronomically unlikely; `on_exit` cleans up to keep `/tmp` tidy.
-    defp make_unique_tmp_dir!(prefix) do
-      suffix = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-      dir = Path.join(System.tmp_dir!(), "#{prefix}-#{suffix}")
-      File.mkdir_p!(dir)
-      on_exit(fn -> File.rm_rf!(dir) end)
-      dir
-    end
-
     test "pushes branch to configured remote", %{state_repo: state_repo} do
       _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "active")
       workspace = make_git_workspace!()

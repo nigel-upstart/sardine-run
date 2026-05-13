@@ -1,17 +1,16 @@
 defmodule SardineRun.SSHTest do
   use ExUnit.Case, async: false
 
+  import SardineRun.TestSupport, only: [make_unique_tmp_dir!: 1]
+
   alias SardineRun.SSH
 
   test "run/3 keeps bracketed IPv6 host:port targets intact" do
-    test_root = Path.join(System.tmp_dir!(), "sardine-run-ssh-ipv6-test-#{System.unique_integer([:positive])}")
+    test_root = make_unique_tmp_dir!("sardine-run-ssh-ipv6-test")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 
-    on_exit(fn ->
-      restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
-    end)
+    on_exit(fn -> restore_env("PATH", previous_path) end)
 
     install_fake_ssh!(test_root, trace_file)
 
@@ -24,14 +23,11 @@ defmodule SardineRun.SSHTest do
   end
 
   test "run/3 leaves unbracketed IPv6-style targets unchanged" do
-    test_root = Path.join(System.tmp_dir!(), "sardine-run-ssh-ipv6-raw-test-#{System.unique_integer([:positive])}")
+    test_root = make_unique_tmp_dir!("sardine-run-ssh-ipv6-raw-test")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 
-    on_exit(fn ->
-      restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
-    end)
+    on_exit(fn -> restore_env("PATH", previous_path) end)
 
     install_fake_ssh!(test_root, trace_file)
 
@@ -44,7 +40,7 @@ defmodule SardineRun.SSHTest do
   end
 
   test "run/3 passes host:port targets through ssh -p" do
-    test_root = Path.join(System.tmp_dir!(), "sardine-run-ssh-test-#{System.unique_integer([:positive])}")
+    test_root = make_unique_tmp_dir!("sardine-run-ssh-test")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
     previous_ssh_config = System.get_env("SARDINE_RUN_SSH_CONFIG")
@@ -52,7 +48,6 @@ defmodule SardineRun.SSHTest do
     on_exit(fn ->
       restore_env("PATH", previous_path)
       restore_env("SARDINE_RUN_SSH_CONFIG", previous_ssh_config)
-      File.rm_rf(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file)
@@ -68,14 +63,11 @@ defmodule SardineRun.SSHTest do
   end
 
   test "run/3 keeps the user prefix when parsing user@host:port targets" do
-    test_root = Path.join(System.tmp_dir!(), "sardine-run-ssh-user-test-#{System.unique_integer([:positive])}")
+    test_root = make_unique_tmp_dir!("sardine-run-ssh-user-test")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 
-    on_exit(fn ->
-      restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
-    end)
+    on_exit(fn -> restore_env("PATH", previous_path) end)
 
     install_fake_ssh!(test_root, trace_file)
 
@@ -88,22 +80,18 @@ defmodule SardineRun.SSHTest do
   end
 
   test "run/3 returns an error when ssh is unavailable" do
-    test_root = Path.join(System.tmp_dir!(), "sardine-run-ssh-missing-test-#{System.unique_integer([:positive])}")
+    test_root = make_unique_tmp_dir!("sardine-run-ssh-missing-test")
     previous_path = System.get_env("PATH")
 
-    on_exit(fn ->
-      restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
-    end)
+    on_exit(fn -> restore_env("PATH", previous_path) end)
 
-    File.mkdir_p!(test_root)
     System.put_env("PATH", test_root)
 
     assert {:error, :ssh_not_found} = SSH.run("localhost", "printf ok")
   end
 
   test "start_port/3 supports binary output without line mode" do
-    test_root = Path.join(System.tmp_dir!(), "sardine-run-ssh-port-test-#{System.unique_integer([:positive])}")
+    test_root = make_unique_tmp_dir!("sardine-run-ssh-port-test")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
     previous_ssh_config = System.get_env("SARDINE_RUN_SSH_CONFIG")
@@ -111,7 +99,6 @@ defmodule SardineRun.SSHTest do
     on_exit(fn ->
       restore_env("PATH", previous_path)
       restore_env("SARDINE_RUN_SSH_CONFIG", previous_ssh_config)
-      File.rm_rf(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file, """
@@ -133,14 +120,11 @@ defmodule SardineRun.SSHTest do
   end
 
   test "start_port/3 supports line mode" do
-    test_root = Path.join(System.tmp_dir!(), "sardine-run-ssh-line-port-test-#{System.unique_integer([:positive])}")
+    test_root = make_unique_tmp_dir!("sardine-run-ssh-line-port-test")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 
-    on_exit(fn ->
-      restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
-    end)
+    on_exit(fn -> restore_env("PATH", previous_path) end)
 
     install_fake_ssh!(test_root, trace_file, """
     #!/bin/sh

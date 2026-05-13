@@ -143,10 +143,7 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
     end
 
     test "renders the workspace git log section for a real repo" do
-      workspace_root = Path.join(System.tmp_dir!(), "sr-live-#{System.unique_integer([:positive])}")
-      File.mkdir_p!(workspace_root)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
-
+      workspace_root = make_unique_tmp_dir!("sr-live")
       workspace = Path.join(workspace_root, "UPS-LIVELOG")
       File.mkdir_p!(workspace)
       System.cmd("git", ["-C", workspace, "init", "--initial-branch=main"], stderr_to_stdout: true)
@@ -266,12 +263,7 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
     end
 
     test "preserves filesystem-derived sections across :observability_updated broadcasts" do
-      workspace_root =
-        Path.join(System.tmp_dir!(), "sr-live-pres-#{System.unique_integer([:positive])}")
-
-      File.mkdir_p!(workspace_root)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
-
+      workspace_root = make_unique_tmp_dir!("sr-live-pres")
       workspace = Path.join(workspace_root, "UPS-PRESERVE")
       File.mkdir_p!(workspace)
 
@@ -358,12 +350,7 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
     end
 
     test ":filesystem_tick re-fetches workspace git log" do
-      workspace_root =
-        Path.join(System.tmp_dir!(), "sr-live-fst-#{System.unique_integer([:positive])}")
-
-      File.mkdir_p!(workspace_root)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
-
+      workspace_root = make_unique_tmp_dir!("sr-live-fst")
       workspace = Path.join(workspace_root, "UPS-FSTICK")
       File.mkdir_p!(workspace)
 
@@ -429,12 +416,7 @@ defmodule SardineRunWeb.SessionDetailLiveTest do
     end
 
     test "error→ok transition triggers immediate filesystem refresh (not next 10s tick)" do
-      workspace_root =
-        Path.join(System.tmp_dir!(), "sr-live-trans-#{System.unique_integer([:positive])}")
-
-      File.mkdir_p!(workspace_root)
-      on_exit(fn -> File.rm_rf!(workspace_root) end)
-
+      workspace_root = make_unique_tmp_dir!("sr-live-trans")
       workspace = Path.join(workspace_root, "UPS-TRANS")
       File.mkdir_p!(workspace)
 

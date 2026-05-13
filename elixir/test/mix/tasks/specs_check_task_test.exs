@@ -2,6 +2,7 @@ defmodule Mix.Tasks.Specs.CheckTaskTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
+  import SardineRun.TestSupport, only: [make_unique_tmp_dir!: 1]
 
   alias Mix.Tasks.Specs.Check
 
@@ -91,18 +92,8 @@ defmodule Mix.Tasks.Specs.CheckTaskTest do
   end
 
   defp in_temp_project(fun) do
-    root = Path.join(System.tmp_dir!(), "specs-check-task-test-#{System.unique_integer([:positive, :monotonic])}")
-    original_cwd = File.cwd!()
-
-    File.rm_rf!(root)
-    File.mkdir_p!(root)
-
-    try do
-      File.cd!(root, fun)
-    after
-      File.cd!(original_cwd)
-      File.rm_rf!(root)
-    end
+    root = make_unique_tmp_dir!("specs-check-task-test")
+    File.cd!(root, fun)
   end
 
   defp write_module!(path, source) do
