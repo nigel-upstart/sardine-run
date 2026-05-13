@@ -19,6 +19,8 @@ defmodule SardineRun.TrafficControl.SessionWriter do
   @session_id_pattern ~r/\A[A-Za-z0-9._-]+\z/
 
   @waiting_keys ~w(kind note requested_at since)
+  @quoted_scalar_fragments ["\n", "\"", ":", "#"]
+  @quoted_scalar_prefixes ["-", "?", "*", "&", "!", "[", "{", "'"]
   @sardine_run_keys ~w(
     agent_id
     run_id
@@ -61,17 +63,7 @@ defmodule SardineRun.TrafficControl.SessionWriter do
          {:ok, parsed} <- decode_yaml(raw) do
       now = DateTime.utc_now() |> DateTime.to_iso8601()
 
-      merged_runtime =
-        runtime
-        |> Map.put("heartbeat_at", now)
-        |> Map.put("last_heartbeat", now)
-        |> then(fn map ->
-          if Map.has_key?(runtime, "last_event") do
-            Map.put(map, "last_event_at", now)
-          else
-            map
-          end
-        end)
+      merged_runtime = stamp_heartbeat(runtime, now)
 
       patched = patch_sardine_run_block(raw, parsed, merged_runtime)
       File.write(session_path, patched)
@@ -175,6 +167,21 @@ defmodule SardineRun.TrafficControl.SessionWriter do
       {:ok, parsed} when is_map(parsed) -> {:ok, parsed}
       {:ok, _} -> {:ok, %{}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp stamp_heartbeat(runtime, now) do
+    runtime
+    |> Map.put("heartbeat_at", now)
+    |> Map.put("last_heartbeat", now)
+    |> maybe_put_last_event_at(runtime, now)
+  end
+
+  defp maybe_put_last_event_at(map, runtime, now) do
+    if Map.has_key?(runtime, "last_event") do
+      Map.put(map, "last_event_at", now)
+    else
+      map
     end
   end
 
@@ -424,24 +431,18 @@ defmodule SardineRun.TrafficControl.SessionWriter do
   defp needs_quoting?(""), do: true
 
   defp needs_quoting?(value) do
-    cond do
-      String.starts_with?(value, " ") -> true
-      String.ends_with?(value, " ") -> true
-      String.contains?(value, "\n") -> true
-      String.contains?(value, "\"") -> true
-      String.contains?(value, ":") -> true
-      String.contains?(value, "#") -> true
-      String.starts_with?(value, "-") -> true
-      String.starts_with?(value, "?") -> true
-      String.starts_with?(value, "*") -> true
-      String.starts_with?(value, "&") -> true
-      String.starts_with?(value, "!") -> true
-      String.starts_with?(value, "[") -> true
-      String.starts_with?(value, "{") -> true
-      String.starts_with?(value, "'") -> true
-      reserved_word?(value) -> true
-      true -> false
-    end
+    padded?(value) or
+      String.contains?(value, @quoted_scalar_fragments) or
+      prefixed_yaml_indicator?(value) or
+      reserved_word?(value)
+  end
+
+  defp padded?(value) do
+    String.starts_with?(value, " ") or String.ends_with?(value, " ")
+  end
+
+  defp prefixed_yaml_indicator?(value) do
+    Enum.any?(@quoted_scalar_prefixes, &String.starts_with?(value, &1))
   end
 
   defp reserved_word?(value) do
@@ -452,5 +453,6 @@ defmodule SardineRun.TrafficControl.SessionWriter do
     value
     |> String.replace("\\", "\\\\")
     |> String.replace("\"", "\\\"")
+    |> String.replace("\n", "\\n")
   end
 end

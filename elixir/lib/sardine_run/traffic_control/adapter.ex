@@ -37,16 +37,7 @@ defmodule SardineRun.TrafficControl.Adapter do
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(ids) when is_list(ids) do
     with {:ok, repo} <- resolve_state_repo() do
-      issues =
-        ids
-        |> Enum.flat_map(fn id ->
-          case load_issue(repo, id) do
-            {:ok, issue} -> [issue]
-            _ -> []
-          end
-        end)
-
-      {:ok, issues}
+      {:ok, load_issues(ids, repo)}
     end
   end
 
@@ -81,15 +72,21 @@ defmodule SardineRun.TrafficControl.Adapter do
       {:ok, entries} ->
         entries
         |> Enum.sort()
-        |> Enum.flat_map(fn id ->
-          case load_issue(repo, id) do
-            {:ok, issue} -> [issue]
-            _ -> []
-          end
-        end)
+        |> load_issues(repo)
 
       {:error, _} ->
         []
+    end
+  end
+
+  defp load_issues(ids, repo) do
+    Enum.flat_map(ids, &load_issue_entry(repo, &1))
+  end
+
+  defp load_issue_entry(repo, id) do
+    case load_issue(repo, id) do
+      {:ok, issue} -> [issue]
+      _ -> []
     end
   end
 

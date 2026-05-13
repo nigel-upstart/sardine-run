@@ -11,11 +11,11 @@ defmodule SardineRun.TestSupport do
       alias SardineRun.Codex.AppServer
       alias SardineRun.Config
       alias SardineRun.HttpServer
-      alias SardineRun.Tracker.Issue
       alias SardineRun.Orchestrator
       alias SardineRun.PromptBuilder
       alias SardineRun.StatusDashboard
       alias SardineRun.Tracker
+      alias SardineRun.Tracker.Issue
       alias SardineRun.Workflow
       alias SardineRun.WorkflowStore
       alias SardineRun.Workspace
