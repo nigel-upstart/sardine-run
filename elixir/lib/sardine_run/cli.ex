@@ -3,6 +3,7 @@ defmodule SardineRun.CLI do
   Escript entrypoint for running Sardine Run with an explicit WORKFLOW.md path.
   """
 
+  alias SardineRun.Claude.MCPServer
   alias SardineRun.LogFile
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
@@ -19,14 +20,37 @@ defmodule SardineRun.CLI do
 
   @spec main([String.t()]) :: no_return()
   def main(args) do
-    case evaluate(args) do
-      :ok ->
-        wait_for_shutdown()
+    case args do
+      ["mcp-bridge" | rest] ->
+        run_mcp_bridge(rest)
 
-      {:error, message} ->
-        IO.puts(:stderr, message)
-        System.halt(1)
+      _ ->
+        case evaluate(args) do
+          :ok ->
+            wait_for_shutdown()
+
+          {:error, message} ->
+            IO.puts(:stderr, message)
+            System.halt(1)
+        end
     end
+  end
+
+  @spec run_mcp_bridge([String.t()]) :: no_return()
+  defp run_mcp_bridge(args) do
+    {opts, _rest, _invalid} =
+      OptionParser.parse(args,
+        strict: [workspace: :string, session_id: :string],
+        aliases: []
+      )
+
+    # Minimal applications needed for the stdio bridge — we don't want to
+    # boot the whole orchestrator pipeline just to answer JSON-RPC.
+    {:ok, _} = Application.ensure_all_started(:jason)
+
+    workspace = Keyword.get(opts, :workspace)
+    :ok = MCPServer.run(workspace: workspace)
+    System.halt(0)
   end
 
   @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
