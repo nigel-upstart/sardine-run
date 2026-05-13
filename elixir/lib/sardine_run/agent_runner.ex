@@ -17,7 +17,7 @@ defmodule SardineRun.AgentRunner do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
 
-    Logger.info("Starting agent run for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
+    Logger.info("🐟 Starting agent run for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
 
     case run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
       :ok ->
@@ -43,7 +43,7 @@ defmodule SardineRun.AgentRunner do
     worker_module = Keyword.get(opts, :worker_module, @default_worker_module)
     worker_kind = worker_module.kind()
 
-    Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)} worker_kind=#{worker_kind}")
+    Logger.info("🐠 Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)} worker_kind=#{worker_kind}")
 
     case Workspace.create_for_issue(issue, worker_host) do
       {:ok, workspace} ->
@@ -134,7 +134,7 @@ defmodule SardineRun.AgentRunner do
              issue,
              on_message: codex_message_handler(codex_update_recipient, issue)
            ) do
-      Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
+      Logger.info("🐬 Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
       case continue_with_issue?(issue, issue_state_fetcher) do
         {:continue, refreshed_issue} when turn_number < max_turns ->

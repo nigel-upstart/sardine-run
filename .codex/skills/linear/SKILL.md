@@ -1,18 +1,18 @@
 ---
 name: linear
 description: |
-  Use Symphony's `linear_graphql` client tool for raw Linear GraphQL
+  Use sardine-run's `linear_graphql` client tool for raw Linear GraphQL
   operations such as comment editing and upload flows.
 ---
 
 # Linear GraphQL
 
-Use this skill for raw Linear GraphQL work during Symphony app-server sessions.
+Use this skill for raw Linear GraphQL work during sardine-run app-server sessions.
 
 ## Primary tool
 
-Use the `linear_graphql` client tool exposed by Symphony's app-server session.
-It reuses Symphony's configured Linear auth for the session.
+Use the `linear_graphql` client tool exposed by sardine-run's app-server session.
+It reuses sardine-run's configured Linear auth for the session.
 
 Tool input:
 
