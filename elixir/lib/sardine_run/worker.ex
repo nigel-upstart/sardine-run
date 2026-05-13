@@ -11,8 +11,16 @@ defmodule SardineRun.Worker do
   `run_turn/4` and `stop_session/1`.
   """
 
-  @typedoc "Stable identifier for the worker backend (e.g. `:codex`, `:claude`)."
-  @type kind :: atom()
+  @typedoc """
+  Stable identifier for the worker species:
+
+  - `:codex` — Codex App Server backend, sampled (default 95%).
+  - `:claude` — Claude Code CLI backend, sampled (default 5%).
+  - `:reviewer` — 🐡 review-feedback processor, deterministically dispatched
+    when a session is in the `review_pending` status. Reuses one of the above
+    backends under the hood (configured via `review.backend`).
+  """
+  @type kind :: :codex | :claude | :reviewer
 
   @typedoc "Opaque per-session state; only the worker module interprets it."
   @type session :: term()

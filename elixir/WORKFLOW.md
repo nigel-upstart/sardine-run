@@ -4,6 +4,7 @@ tracker:
   state_repo: "$TRAFFIC_CONTROL_STATE_REPO"
   active_states:
     - active
+    - review_pending
   terminal_states:
     - done
     - archived
@@ -47,6 +48,21 @@ claude:
   turn_timeout_ms: 3600000
   read_timeout_ms: 5000
   stall_timeout_ms: 300000
+review:
+  # 🐡 review-feedback processor: when a session sits in `review` status, the
+  # ReviewWatcher polls the linked PR every poll_interval_ms (±poll_jitter_ms)
+  # for unresolved threads + failing CI checks. If any show up, it flips the
+  # session to `review_pending` and the orchestrator dispatches the reviewer
+  # species deterministically (bypassing the codex/claude sampler).
+  # ReviewWatcher + reviewer prompt land in subsequent PRs; this PR only wires
+  # the config + dispatch branch.
+  enabled: true
+  poll_interval_ms: 300000
+  poll_jitter_ms: 60000
+  backend: codex
+  prompt_file: REVIEW_FEEDBACK.md
+  check_ci: true
+  auto_resolve_on_reject: true
 ---
 
 You are working on a Traffic Control session `{{ issue.identifier }}`.

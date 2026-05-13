@@ -11,7 +11,7 @@ defmodule SardineRun.CoreTest do
 
     config = Config.settings!()
     assert config.polling.interval_ms == 30_000
-    assert config.tracker.active_states == ["active"]
+    assert config.tracker.active_states == ["active", "review_pending"]
     assert config.tracker.terminal_states == ["done", "archived"]
     assert config.agent.max_turns == 20
 

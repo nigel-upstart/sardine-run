@@ -47,7 +47,7 @@ defmodule SardineRun.Config.Schema do
     embedded_schema do
       field(:kind, :string)
       field(:state_repo, :string)
-      field(:active_states, {:array, :string}, default: ["active"])
+      field(:active_states, {:array, :string}, default: ["active", "review_pending"])
       field(:terminal_states, {:array, :string}, default: ["done", "archived"])
     end
 
@@ -252,6 +252,43 @@ defmodule SardineRun.Config.Schema do
     end
   end
 
+  defmodule Review do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:enabled, :boolean, default: true)
+      field(:poll_interval_ms, :integer, default: 300_000)
+      field(:poll_jitter_ms, :integer, default: 60_000)
+      field(:backend, Ecto.Enum, values: [:codex, :claude], default: :codex)
+      field(:prompt_file, :string, default: "REVIEW_FEEDBACK.md")
+      field(:check_ci, :boolean, default: true)
+      field(:auto_resolve_on_reject, :boolean, default: true)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(
+        attrs,
+        [
+          :enabled,
+          :poll_interval_ms,
+          :poll_jitter_ms,
+          :backend,
+          :prompt_file,
+          :check_ci,
+          :auto_resolve_on_reject
+        ],
+        empty_values: []
+      )
+      |> validate_number(:poll_interval_ms, greater_than: 0)
+      |> validate_number(:poll_jitter_ms, greater_than_or_equal_to: 0)
+    end
+  end
+
   defmodule Hooks do
     @moduledoc false
     use Ecto.Schema
@@ -322,6 +359,7 @@ defmodule SardineRun.Config.Schema do
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:review, Review, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
@@ -417,6 +455,7 @@ defmodule SardineRun.Config.Schema do
     |> cast_embed(:agent, with: &Agent.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:claude, with: &Claude.changeset/2)
+    |> cast_embed(:review, with: &Review.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)

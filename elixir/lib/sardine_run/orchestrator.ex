@@ -9,8 +9,10 @@ defmodule SardineRun.Orchestrator do
 
   alias SardineRun.{AgentRunner, Config, HttpServer, StatusDashboard, Tracker, Workspace}
   alias SardineRun.AgentRunner.WorkspaceHookFailedError
+  alias SardineRun.Config.Schema, as: ConfigSchema
   alias SardineRun.Tracker.Issue
   alias SardineRun.TrafficControl.SessionWriter
+  alias SardineRun.Worker
   alias SardineRun.Worker.Sampler
 
   @continuation_retry_delay_ms 1_000
@@ -28,6 +30,8 @@ defmodule SardineRun.Orchestrator do
     @moduledoc """
     Runtime state for the orchestrator polling loop.
     """
+
+    @type t :: %__MODULE__{}
 
     defstruct [
       :poll_interval_ms,
@@ -1161,7 +1165,33 @@ defmodule SardineRun.Orchestrator do
     Map.put(running_entry, key, value)
   end
 
-  defp pick_worker(%State{} = _state, _issue) do
+  @doc false
+  @spec pick_worker(State.t(), Issue.t() | map()) :: {module(), Worker.kind()}
+  def pick_worker(%State{} = _state, issue) do
+    if reviewer_state?(issue) do
+      pick_reviewer_worker()
+    else
+      pick_sampled_worker()
+    end
+  end
+
+  defp reviewer_state?(%{state: state}) when is_binary(state) do
+    ConfigSchema.normalize_issue_state(state) == "review_pending"
+  end
+
+  defp reviewer_state?(_issue), do: false
+
+  defp pick_reviewer_worker do
+    backend_module =
+      case Config.settings!().review.backend do
+        :claude -> SardineRun.Claude.AppServer
+        _ -> SardineRun.Codex.AppServer
+      end
+
+    {backend_module, :reviewer}
+  end
+
+  defp pick_sampled_worker do
     probability =
       case Config.settings!().agent.sampling do
         %{claude_probability: prob} when is_number(prob) -> prob
