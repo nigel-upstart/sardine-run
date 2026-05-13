@@ -2,6 +2,7 @@ defmodule SardineRun.Codex.DynamicToolTest do
   use SardineRun.TestSupport
 
   alias SardineRun.Codex.DynamicTool
+  alias SardineRun.TrafficControl.SessionWriter
 
   setup do
     state_repo = make_state_repo!()
@@ -39,7 +40,11 @@ defmodule SardineRun.Codex.DynamicToolTest do
                "link",
                "focus",
                "next_step",
-               "git_push"
+               "git_push",
+               "list_review_comments",
+               "reply_to_comment",
+               "resolve_thread",
+               "request_human_help"
              ]
 
       assert props["session_id"]["type"] == "string"
@@ -64,11 +69,12 @@ defmodule SardineRun.Codex.DynamicToolTest do
       assert "operation" in params["required"]
       assert "session_id" in params["required"]
 
-      for key <- ~w(waiting_note body label link_kind url last_event last_message last_error value) do
+      for key <-
+            ~w(waiting_note body label link_kind url last_event last_message last_error value thread_id reason) do
         assert props[key]["type"] == "string", "expected #{key} to be string typed"
       end
 
-      for key <- ~w(input_tokens output_tokens total_tokens) do
+      for key <- ~w(input_tokens output_tokens total_tokens comment_id) do
         assert props[key]["type"] == "integer", "expected #{key} to be integer typed"
       end
     end
@@ -456,6 +462,191 @@ defmodule SardineRun.Codex.DynamicToolTest do
     end
   end
 
+  describe "execute/3 list_review_comments" do
+    test "returns the pending_feedback snapshot from disk", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      :ok =
+        SessionWriter.write_pending_feedback("abc", %{
+          "threads" => [%{"id" => "PRRT_1", "body" => "consider X"}],
+          "failing_checks" => [%{"name" => "ci/test", "url" => "https://example.invalid"}]
+        })
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "list_review_comments",
+          "session_id" => "abc"
+        })
+
+      assert %{"success" => true, "output" => output} = response
+      {:ok, decoded} = Jason.decode(output)
+      assert decoded["feedback"]["threads"] |> List.first() |> Map.get("id") == "PRRT_1"
+      assert decoded["feedback"]["failing_checks"] |> List.first() |> Map.get("name") == "ci/test"
+    end
+
+    test "returns empty feedback when no snapshot exists yet", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review")
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "list_review_comments",
+          "session_id" => "abc"
+        })
+
+      assert %{"success" => true, "output" => output} = response
+      {:ok, decoded} = Jason.decode(output)
+      assert decoded["feedback"] == %{}
+    end
+  end
+
+  describe "execute/3 reply_to_comment" do
+    test "shells out to gh with the resolved PR ref and threads the reply", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      :ok =
+        SessionWriter.append_link("abc", %{
+          "label" => "PR",
+          "kind" => "pr",
+          "url" => "https://github.com/teamupstart/sardine-run/pull/42"
+        })
+
+      trace_file = with_fake_gh!(~s|{"id": 99}|)
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "reply_to_comment",
+          "session_id" => "abc",
+          "comment_id" => 12_345,
+          "body" => "addressed in commit a1b2c3"
+        })
+
+      assert %{"success" => true, "output" => output} = response
+      assert output =~ "reply_to_comment"
+      trace = File.read!(trace_file)
+      assert trace =~ "repos/teamupstart/sardine-run/pulls/42/comments"
+      assert trace =~ "body=addressed in commit a1b2c3"
+      assert trace =~ "in_reply_to=12345"
+    end
+
+    test "fails with validation error when session has no kind=pr link", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      _trace = with_fake_gh!("{}")
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "reply_to_comment",
+          "session_id" => "abc",
+          "comment_id" => 1,
+          "body" => "..."
+        })
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "No link of kind=pr"
+    end
+
+    test "requires comment_id to be an integer", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "reply_to_comment",
+          "session_id" => "abc",
+          "comment_id" => "not-a-number",
+          "body" => "..."
+        })
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "comment_id"
+    end
+  end
+
+  describe "execute/3 resolve_thread" do
+    test "issues the resolveReviewThread mutation via gh api graphql", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      trace_file = with_fake_gh!(~s|{"data": {"resolveReviewThread": {"thread": {"isResolved": true}}}}|)
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "resolve_thread",
+          "session_id" => "abc",
+          "thread_id" => "PRRT_kwDOK0",
+          "reason" => "we disagree because the existing pattern is intentional and consistent across modules"
+        })
+
+      assert %{"success" => true, "output" => output} = response
+      assert output =~ "PRRT_kwDOK0"
+      trace = File.read!(trace_file)
+      assert trace =~ "api"
+      assert trace =~ "graphql"
+      assert trace =~ "resolveReviewThread"
+      assert trace =~ ~s|threadId: "PRRT_kwDOK0"|
+    end
+
+    test "rejects thread_id containing disallowed characters", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "resolve_thread",
+          "session_id" => "abc",
+          "thread_id" => ~s|" } } }|,
+          "reason" => "..."
+        })
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "thread_id"
+    end
+
+    test "reason is required", %{state_repo: state_repo} do
+      _path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "resolve_thread",
+          "session_id" => "abc",
+          "thread_id" => "PRRT_X"
+        })
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "reason"
+    end
+  end
+
+  describe "execute/3 request_human_help" do
+    test "flips status to waiting with waiting_kind=human and supplied note", %{state_repo: state_repo} do
+      path = write_session_yaml!(state_repo, "abc", id: "abc", title: "T", status: "review_pending")
+
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "request_human_help",
+          "session_id" => "abc",
+          "body" => "Conflicting reviewer guidance on caching strategy."
+        })
+
+      assert %{"success" => true, "output" => output} = response
+      assert output =~ "request_human_help"
+
+      raw = File.read!(path)
+      assert raw =~ ~r/^status: waiting$/m
+      assert {:ok, parsed} = YamlElixir.read_from_string(raw)
+      assert parsed["waiting"]["kind"] == "human"
+      assert parsed["waiting"]["note"] =~ "Conflicting reviewer guidance"
+    end
+
+    test "missing body returns validation failure" do
+      response =
+        DynamicTool.execute("sardine_run_session", %{
+          "operation" => "request_human_help",
+          "session_id" => "abc"
+        })
+
+      assert %{"success" => false, "output" => output} = response
+      assert output =~ "body"
+    end
+  end
+
   describe "execute/3 validation" do
     test "unknown tool returns structured failure" do
       response = DynamicTool.execute("not_a_tool", %{})
@@ -504,5 +695,31 @@ defmodule SardineRun.Codex.DynamicToolTest do
       assert is_list(items)
       assert Enum.any?(items, &(&1["text"] == output))
     end
+  end
+
+  # Installs a fake `gh` binary on PATH that captures its argv to a trace file
+  # and prints `stdout_body` on stdout. Returns the absolute path to the trace
+  # file so tests can assert against what gh was called with.
+  defp with_fake_gh!(stdout_body) do
+    bin_dir = make_unique_tmp_dir!("sardine-run-fake-gh")
+    trace_file = Path.join(bin_dir, "gh.trace")
+    fake_gh = Path.join(bin_dir, "gh")
+
+    File.write!(fake_gh, """
+    #!/bin/sh
+    printf '%s\\n' "$*" > #{trace_file}
+    cat <<'PAYLOAD'
+    #{stdout_body}
+    PAYLOAD
+    exit 0
+    """)
+
+    File.chmod!(fake_gh, 0o755)
+
+    previous_path = System.get_env("PATH")
+    System.put_env("PATH", bin_dir <> ":" <> (previous_path || ""))
+    on_exit(fn -> restore_env("PATH", previous_path) end)
+
+    trace_file
   end
 end

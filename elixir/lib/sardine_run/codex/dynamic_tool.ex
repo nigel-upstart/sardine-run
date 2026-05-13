@@ -6,11 +6,15 @@ defmodule SardineRun.Codex.DynamicTool do
   its assigned Traffic Control session without writing files directly.
   """
 
+  alias SardineRun.Review
   alias SardineRun.TrafficControl.SessionWriter
 
   @tool_name "sardine_run_session"
 
-  @operations ~w(status heartbeat note link focus next_step git_push)
+  @operations ~w(
+    status heartbeat note link focus next_step git_push
+    list_review_comments reply_to_comment resolve_thread request_human_help
+  )
   @statuses ~w(active blocked waiting review done archived)
   @waiting_kinds ~w(human ci review external other)
 
@@ -20,6 +24,9 @@ defmodule SardineRun.Codex.DynamicTool do
       "Update the assigned Traffic Control session for this Sardine Run agent. " <>
         "Use to change status, record waiting state, append notes, add links, " <>
         "send a heartbeat, or push a git branch via the orchestrator (git_push). " <>
+        "Reviewer-only operations (list_review_comments, reply_to_comment, " <>
+        "resolve_thread, request_human_help) are used by the :reviewer worker " <>
+        "to read and address pending PR review feedback. " <>
         "git_push runs on the host outside the sandbox, so it works even when " <>
         "the agent's network access is disabled.",
     "inputSchema" => %{
@@ -103,6 +110,18 @@ defmodule SardineRun.Codex.DynamicTool do
         "remote" => %{
           "type" => "string",
           "description" => "Optional when operation=git_push. Remote name to push to (default: origin)."
+        },
+        "comment_id" => %{
+          "type" => "integer",
+          "description" => "Required when operation=reply_to_comment. REST comment ID (integer) to thread the reply under."
+        },
+        "thread_id" => %{
+          "type" => "string",
+          "description" => "Required when operation=resolve_thread. GraphQL node ID of the review thread (e.g. 'PRRT_kwDOKqpK0M5vt_nf'), not the REST comment ID."
+        },
+        "reason" => %{
+          "type" => "string",
+          "description" => "Required when operation=resolve_thread. Short rationale recorded for caller bookkeeping. The substantive reply belongs in the preceding reply_to_comment."
         }
       }
     }
@@ -278,6 +297,85 @@ defmodule SardineRun.Codex.DynamicTool do
     end
   end
 
+  defp dispatch("list_review_comments", session_id, _args, _opts) do
+    case SessionWriter.read_pending_feedback(session_id) do
+      {:ok, feedback} ->
+        success(%{
+          "session_id" => session_id,
+          "operation" => "list_review_comments",
+          "feedback" => feedback
+        })
+
+      {:error, reason} ->
+        writer_failure(reason)
+    end
+  end
+
+  defp dispatch("reply_to_comment", session_id, args, _opts) do
+    with {:ok, comment_id} <- require_integer(args, "comment_id"),
+         {:ok, body} <- require_string(args, "body"),
+         {:ok, url} <- lookup_pr_url(session_id),
+         {:ok, pr_ref} <- parse_pr_url(url) do
+      case Review.GitHub.reply_to_comment(pr_ref, comment_id, body) do
+        {:ok, _result} ->
+          success(%{
+            "session_id" => session_id,
+            "operation" => "reply_to_comment",
+            "comment_id" => comment_id
+          })
+
+        {:error, reason} ->
+          gh_failure(reason)
+      end
+    else
+      {:error, %{} = validation} -> validation_failure(validation)
+      {:error, :no_pr_link} -> validation_failure(%{"field" => "session", "message" => "No link of kind=pr is recorded for this session."})
+      {:error, :invalid_pr_url} -> validation_failure(%{"field" => "session", "message" => "Recorded PR link URL is not a github.com pull URL."})
+      {:error, reason} -> writer_failure(reason)
+    end
+  end
+
+  defp dispatch("resolve_thread", session_id, args, _opts) do
+    with {:ok, thread_id} <- require_string(args, "thread_id"),
+         {:ok, reason} <- require_string(args, "reason") do
+      case Review.GitHub.resolve_thread(thread_id, reason) do
+        {:ok, _result} ->
+          success(%{
+            "session_id" => session_id,
+            "operation" => "resolve_thread",
+            "thread_id" => thread_id
+          })
+
+        {:error, gh_reason} ->
+          gh_failure(gh_reason)
+      end
+    else
+      {:error, reason} -> validation_failure(reason)
+    end
+  end
+
+  defp dispatch("request_human_help", session_id, args, _opts) do
+    case require_string(args, "body") do
+      {:ok, note} ->
+        waiting = %{"kind" => "human", "note" => note}
+
+        case SessionWriter.update_status(session_id, "waiting", waiting) do
+          :ok ->
+            success(%{
+              "session_id" => session_id,
+              "operation" => "request_human_help",
+              "status" => "waiting"
+            })
+
+          {:error, reason} ->
+            writer_failure(reason)
+        end
+
+      {:error, reason} ->
+        validation_failure(reason)
+    end
+  end
+
   defp dispatch(operation, _session_id, _args, _opts) do
     validation_failure(%{
       "field" => "operation",
@@ -285,6 +383,12 @@ defmodule SardineRun.Codex.DynamicTool do
       "allowed" => @operations
     })
   end
+
+  defp lookup_pr_url(session_id) do
+    SessionWriter.find_pr_url(session_id)
+  end
+
+  defp parse_pr_url(url), do: Review.GitHub.parse_pr_url(url)
 
   defp validate_git_ref(ref) when is_binary(ref) do
     cond do
@@ -326,6 +430,16 @@ defmodule SardineRun.Codex.DynamicTool do
     end
   end
 
+  defp require_integer(args, key) do
+    case Map.get(args, key) do
+      value when is_integer(value) ->
+        {:ok, value}
+
+      _ ->
+        {:error, %{"field" => key, "message" => "#{key} is required and must be an integer."}}
+    end
+  end
+
   defp require_enum(args, key, allowed) do
     case Map.get(args, key) do
       value when is_binary(value) ->
@@ -355,6 +469,22 @@ defmodule SardineRun.Codex.DynamicTool do
         "kind" => "writer_error",
         "message" => format_writer_reason(reason)
       }
+    })
+  end
+
+  defp gh_failure({:gh_failed, status, output}) do
+    failure(%{
+      "error" => %{
+        "kind" => "gh_failed",
+        "message" => "gh exited #{status}: #{output}"
+      }
+    })
+  end
+
+  defp gh_failure({:invalid_thread_id, thread_id}) do
+    validation_failure(%{
+      "field" => "thread_id",
+      "message" => "thread_id must match /^[A-Za-z0-9_-]+$/: #{inspect(thread_id)}"
     })
   end
 

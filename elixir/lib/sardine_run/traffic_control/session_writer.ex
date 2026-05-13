@@ -123,6 +123,97 @@ defmodule SardineRun.TrafficControl.SessionWriter do
   end
 
   @doc """
+  Writes a snapshot of pending PR review feedback to
+  `sessions/<id>/pending_feedback.yaml`. The body is rendered as JSON (a
+  strict subset of YAML 1.2) so we get a deterministic, round-trippable
+  serializer without growing the hand-rolled YAML writer.
+
+  Written by `SardineRun.ReviewWatcher` (PR 3) and read by the
+  `list_review_comments` dynamic-tool operation.
+  """
+  @spec write_pending_feedback(String.t(), map()) :: :ok | {:error, term()}
+  def write_pending_feedback(session_id, %{} = feedback) when is_binary(session_id) do
+    with :ok <- validate_session_id(session_id),
+         {:ok, path} <- pending_feedback_path(session_id),
+         :ok <- File.mkdir_p(Path.dirname(path)) do
+      File.write(path, Jason.encode!(feedback, pretty: true) <> "\n")
+    end
+  end
+
+  @doc """
+  Reads the pending-feedback snapshot for a session. Returns `{:ok, %{}}`
+  when no snapshot exists (so the agent can treat "no pending feedback" as
+  a normal case rather than an error).
+  """
+  @spec read_pending_feedback(String.t()) :: {:ok, map()} | {:error, term()}
+  def read_pending_feedback(session_id) when is_binary(session_id) do
+    with :ok <- validate_session_id(session_id),
+         {:ok, path} <- pending_feedback_path(session_id) do
+      decode_pending_feedback(path)
+    end
+  end
+
+  defp decode_pending_feedback(path) do
+    case File.read(path) do
+      {:ok, raw} -> decode_pending_feedback_body(raw)
+      {:error, :enoent} -> {:ok, %{}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp decode_pending_feedback_body(raw) do
+    case YamlElixir.read_from_string(raw) do
+      {:ok, %{} = parsed} -> {:ok, parsed}
+      _ -> {:ok, %{}}
+    end
+  end
+
+  @doc """
+  Removes the pending-feedback snapshot for a session. Idempotent.
+  """
+  @spec clear_pending_feedback(String.t()) :: :ok | {:error, term()}
+  def clear_pending_feedback(session_id) when is_binary(session_id) do
+    with :ok <- validate_session_id(session_id),
+         {:ok, path} <- pending_feedback_path(session_id) do
+      case File.rm(path) do
+        :ok -> :ok
+        {:error, :enoent} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Looks up the first `kind: pr` link in the session's `links.yaml`.
+  Returns the URL as a string. Used by the review tool ops to discover the
+  PR a session's agent should be talking to.
+  """
+  @spec find_pr_url(String.t()) :: {:ok, String.t()} | {:error, :no_pr_link | term()}
+  def find_pr_url(session_id) when is_binary(session_id) do
+    with :ok <- validate_session_id(session_id),
+         {:ok, repo} <- Adapter.resolve_state_repo(),
+         {:ok, links} <- read_existing_links(Path.join([repo, "sessions", session_id, "links.yaml"])) do
+      first_pr_url(links)
+    end
+  end
+
+  defp first_pr_url(links) do
+    case Enum.find(links, &pr_link?/1) do
+      %{"url" => url} when is_binary(url) -> {:ok, url}
+      _ -> {:error, :no_pr_link}
+    end
+  end
+
+  defp pending_feedback_path(session_id) do
+    with {:ok, repo} <- Adapter.resolve_state_repo() do
+      {:ok, Path.join([repo, "sessions", session_id, "pending_feedback.yaml"])}
+    end
+  end
+
+  defp pr_link?(%{"kind" => "pr"}), do: true
+  defp pr_link?(_), do: false
+
+  @doc """
   Atomically merges the given runtime fields into the `sardine_run:` block of
   `session.yaml`. Only keys in the allowed list are written; unknown keys are
   ignored. Nil values are rendered as YAML `null` (explicitly clearing the
