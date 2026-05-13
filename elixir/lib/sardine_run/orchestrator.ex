@@ -279,13 +279,11 @@ defmodule SardineRun.Orchestrator do
   defp maybe_dispatch(%State{} = state) do
     state = reconcile_running_issues(state)
 
-    cond do
-      dispatch_paused?(state) ->
-        log_dispatch_pause(state)
-        state
-
-      true ->
-        do_maybe_dispatch(state)
+    if dispatch_paused?(state) do
+      log_dispatch_pause(state)
+      state
+    else
+      do_maybe_dispatch(state)
     end
   end
 

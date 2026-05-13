@@ -92,6 +92,26 @@ defmodule SardineRun.TrafficControl.SessionWriterTest do
       assert parsed["waiting"]["note"] == "Need approval"
     end
 
+    test "escapes newlines in waiting notes", %{state_repo: repo} do
+      write_session_yaml!(repo, "s2-newline", id: "s2-newline", status: "active")
+
+      note = "line one\nline two with \"quotes\" and \\slashes"
+
+      assert :ok =
+               SessionWriter.update_status("s2-newline", "waiting", %{
+                 "kind" => "external",
+                 "note" => note
+               })
+
+      raw = File.read!(session_path(repo, "s2-newline"))
+
+      assert raw =~ ~S(note: "line one\nline two with \"quotes\" and \\slashes")
+      refute raw =~ "note: \"line one\nline two"
+
+      parsed = read_yaml!(session_path(repo, "s2-newline"))
+      assert parsed["waiting"]["note"] == note
+    end
+
     test "clears waiting block when status leaves waiting", %{state_repo: repo} do
       content = """
       id: s3
