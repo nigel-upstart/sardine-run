@@ -14,9 +14,14 @@ workspace until the session reaches a terminal state.
 2. Each `sessions/<id>/session.yaml` file with a status in `tracker.active_states` is candidate
    work.
 3. Sardine Run creates a workspace under `~/code/sardine-run-workspaces/<sanitized-id>` and
-   launches Codex in [App Server mode](https://developers.openai.com/codex/app-server/) inside it.
-4. Codex sees the workflow prompt and a single dynamic tool, `sardine_run_session`, which it uses
-   to update its assigned session: change status, append notes, record links, send heartbeats,
+   launches a coding agent inside it. By default it runs Codex in
+   [App Server mode](https://developers.openai.com/codex/app-server/); a small fraction of
+   dispatches (default `5%`, configured via `agents.sampling.claude_probability`) instead
+   launch the Claude Code CLI in headless stream-json mode. Either backend gets the same
+   `sardine_run_session` tool — for Claude it is exposed through a per-session stdio MCP
+   bridge that Sardine Run hosts.
+4. The agent sees the workflow prompt and a single dynamic tool, `sardine_run_session`, which it
+   uses to update its assigned session: change status, append notes, record links, send heartbeats,
    and set focus / next_step.
 5. When the session moves to `done` or `archived`, Sardine Run stops the agent and cleans the
    workspace.

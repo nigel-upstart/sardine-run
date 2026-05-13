@@ -116,6 +116,27 @@ defmodule SardineRun.Config.Schema do
     end
   end
 
+  defmodule Sampling do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:claude_probability, :float, default: 0.05)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:claude_probability], empty_values: [])
+      |> validate_number(:claude_probability,
+        greater_than_or_equal_to: 0.0,
+        less_than_or_equal_to: 1.0
+      )
+    end
+  end
+
   defmodule Agent do
     @moduledoc false
     use Ecto.Schema
@@ -129,6 +150,7 @@ defmodule SardineRun.Config.Schema do
       field(:max_turns, :integer, default: 20)
       field(:max_retry_backoff_ms, :integer, default: 300_000)
       field(:max_concurrent_agents_by_state, :map, default: %{})
+      embeds_one(:sampling, Sampling, on_replace: :update, defaults_to_struct: true)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -139,6 +161,7 @@ defmodule SardineRun.Config.Schema do
         [:max_concurrent_agents, :max_turns, :max_retry_backoff_ms, :max_concurrent_agents_by_state],
         empty_values: []
       )
+      |> cast_embed(:sampling, with: &Sampling.changeset/2)
       |> validate_number(:max_concurrent_agents, greater_than: 0)
       |> validate_number(:max_turns, greater_than: 0)
       |> validate_number(:max_retry_backoff_ms, greater_than: 0)
@@ -177,6 +200,45 @@ defmodule SardineRun.Config.Schema do
           :thread_sandbox,
           :turn_sandbox_policy,
           :network_access,
+          :turn_timeout_ms,
+          :read_timeout_ms,
+          :stall_timeout_ms
+        ],
+        empty_values: []
+      )
+      |> validate_required([:command])
+      |> validate_number(:turn_timeout_ms, greater_than: 0)
+      |> validate_number(:read_timeout_ms, greater_than: 0)
+      |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
+    end
+  end
+
+  defmodule Claude do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:command, :string, default: "claude")
+      field(:model, :string, default: "sonnet")
+      field(:effort, :string, default: "high")
+      field(:permission_mode, :string, default: "bypassPermissions")
+      field(:turn_timeout_ms, :integer, default: 3_600_000)
+      field(:read_timeout_ms, :integer, default: 5_000)
+      field(:stall_timeout_ms, :integer, default: 300_000)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(
+        attrs,
+        [
+          :command,
+          :model,
+          :effort,
+          :permission_mode,
           :turn_timeout_ms,
           :read_timeout_ms,
           :stall_timeout_ms
@@ -259,6 +321,7 @@ defmodule SardineRun.Config.Schema do
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
@@ -268,6 +331,7 @@ defmodule SardineRun.Config.Schema do
   def parse(config) when is_map(config) do
     config
     |> normalize_keys()
+    |> alias_top_level_keys()
     |> drop_nil_values()
     |> changeset()
     |> apply_action(:validate)
@@ -353,6 +417,7 @@ defmodule SardineRun.Config.Schema do
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+    |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
@@ -392,6 +457,30 @@ defmodule SardineRun.Config.Schema do
 
   defp normalize_key(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_key(value), do: to_string(value)
+
+  # Merges plural `agents:` into singular `agent:` so workflow authors can use
+  # either form. Workstream A intentionally adds `agents.sampling.claude_probability`,
+  # but the existing schema field is named `agent`; this keeps the schema
+  # single-source while honoring the front-matter naming chosen in the plan.
+  defp alias_top_level_keys(config) when is_map(config) do
+    case Map.pop(config, "agents") do
+      {nil, rest} ->
+        rest
+
+      {plural, rest} ->
+        singular = Map.get(rest, "agent", %{}) || %{}
+        merged = deep_merge_map(singular, plural)
+        Map.put(rest, "agent", merged)
+    end
+  end
+
+  defp deep_merge_map(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _k, l, r ->
+      if is_map(l) and is_map(r), do: deep_merge_map(l, r), else: r
+    end)
+  end
+
+  defp deep_merge_map(_left, right), do: right
 
   defp drop_nil_values(value) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, nested}, acc ->
