@@ -25,6 +25,7 @@ defmodule SardineRun.TrafficControl.SessionWriter do
     last_heartbeat
     heartbeat_at
     worker_host
+    worker_kind
     workspace_path
     codex_session_id
     last_event
@@ -65,16 +66,18 @@ defmodule SardineRun.TrafficControl.SessionWriter do
         runtime
         |> Map.put("heartbeat_at", now)
         |> Map.put("last_heartbeat", now)
-        |> then(fn map ->
-          if Map.has_key?(runtime, "last_event") do
-            Map.put(map, "last_event_at", now)
-          else
-            map
-          end
-        end)
+        |> maybe_tag_event_timestamp(runtime, now)
 
       patched = patch_sardine_run_block(raw, parsed, merged_runtime)
       File.write(session_path, patched)
+    end
+  end
+
+  defp maybe_tag_event_timestamp(map, runtime, now) do
+    if Map.has_key?(runtime, "last_event") do
+      Map.put(map, "last_event_at", now)
+    else
+      map
     end
   end
 
@@ -125,18 +128,25 @@ defmodule SardineRun.TrafficControl.SessionWriter do
   ignored. Nil values are rendered as YAML `null` (explicitly clearing the
   field), unlike `update_heartbeat/2` which omits nil-valued keys.
 
-  Currently supported keys: `dashboard_url`.
+  Supported keys: `dashboard_url`, `worker_kind`.
   """
-  @spec update_runtime(String.t(), %{dashboard_url: String.t() | nil}) ::
-          :ok | {:error, term()}
-  def update_runtime(session_id, %{dashboard_url: url})
-      when is_binary(session_id) and (is_binary(url) or is_nil(url)) do
-    with :ok <- validate_session_id(session_id),
-         {:ok, session_path} <- session_path(session_id),
-         {:ok, raw} <- File.read(session_path),
-         {:ok, parsed} <- decode_yaml(raw) do
-      patched = patch_sardine_run_runtime(raw, parsed, %{"dashboard_url" => url})
-      File.write(session_path, patched)
+  @spec update_runtime(String.t(), map()) :: :ok | {:error, term()}
+  def update_runtime(session_id, %{} = updates)
+      when is_binary(session_id) do
+    string_updates = stringify_runtime_values(updates)
+    allowed = ["dashboard_url", "worker_kind"]
+    filtered = Map.take(string_updates, allowed)
+
+    if map_size(filtered) == 0 do
+      :ok
+    else
+      with :ok <- validate_session_id(session_id),
+           {:ok, session_path} <- session_path(session_id),
+           {:ok, raw} <- File.read(session_path),
+           {:ok, parsed} <- decode_yaml(raw) do
+        patched = patch_sardine_run_runtime(raw, parsed, filtered)
+        File.write(session_path, patched)
+      end
     end
   end
 
@@ -421,27 +431,28 @@ defmodule SardineRun.TrafficControl.SessionWriter do
 
   defp scalar_yaml(value), do: scalar_yaml(to_string(value))
 
+  @quoting_leading_chars ["-", "?", "*", "&", "!", "[", "{", "'"]
+  @quoting_substrings ["\n", "\"", ":", "#"]
+
   defp needs_quoting?(""), do: true
 
   defp needs_quoting?(value) do
-    cond do
-      String.starts_with?(value, " ") -> true
-      String.ends_with?(value, " ") -> true
-      String.contains?(value, "\n") -> true
-      String.contains?(value, "\"") -> true
-      String.contains?(value, ":") -> true
-      String.contains?(value, "#") -> true
-      String.starts_with?(value, "-") -> true
-      String.starts_with?(value, "?") -> true
-      String.starts_with?(value, "*") -> true
-      String.starts_with?(value, "&") -> true
-      String.starts_with?(value, "!") -> true
-      String.starts_with?(value, "[") -> true
-      String.starts_with?(value, "{") -> true
-      String.starts_with?(value, "'") -> true
-      reserved_word?(value) -> true
-      true -> false
-    end
+    quoting_whitespace_boundary?(value) or
+      quoting_substring?(value) or
+      quoting_leading_char?(value) or
+      reserved_word?(value)
+  end
+
+  defp quoting_whitespace_boundary?(value) do
+    String.starts_with?(value, " ") or String.ends_with?(value, " ")
+  end
+
+  defp quoting_substring?(value) do
+    Enum.any?(@quoting_substrings, &String.contains?(value, &1))
+  end
+
+  defp quoting_leading_char?(value) do
+    Enum.any?(@quoting_leading_chars, &String.starts_with?(value, &1))
   end
 
   defp reserved_word?(value) do

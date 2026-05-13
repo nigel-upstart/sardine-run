@@ -11,6 +11,7 @@ defmodule SardineRun.Orchestrator do
   alias SardineRun.AgentRunner.WorkspaceHookFailedError
   alias SardineRun.Tracker.Issue
   alias SardineRun.TrafficControl.SessionWriter
+  alias SardineRun.Worker.Sampler
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -201,6 +202,7 @@ defmodule SardineRun.Orchestrator do
           running_entry
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+          |> maybe_put_runtime_value(:worker_kind, runtime_info[:worker_kind])
 
         notify_dashboard()
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
@@ -279,13 +281,11 @@ defmodule SardineRun.Orchestrator do
   defp maybe_dispatch(%State{} = state) do
     state = reconcile_running_issues(state)
 
-    cond do
-      dispatch_paused?(state) ->
-        log_dispatch_pause(state)
-        state
-
-      true ->
-        do_maybe_dispatch(state)
+    if dispatch_paused?(state) do
+      log_dispatch_pause(state)
+      state
+    else
+      do_maybe_dispatch(state)
     end
   end
 
@@ -757,13 +757,19 @@ defmodule SardineRun.Orchestrator do
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
+    {worker_module, worker_kind} = pick_worker(state, issue)
+
     case Task.Supervisor.start_child(SardineRun.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+           AgentRunner.run(issue, recipient,
+             attempt: attempt,
+             worker_host: worker_host,
+             worker_module: worker_module
+           )
          end) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 
-        Logger.info("Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
+        Logger.info("Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"} worker_kind=#{worker_kind}")
 
         running =
           Map.put(state.running, issue.id, %{
@@ -772,6 +778,8 @@ defmodule SardineRun.Orchestrator do
             identifier: issue.identifier,
             issue: issue,
             worker_host: worker_host,
+            worker_kind: worker_kind,
+            worker_module: worker_module,
             workspace_path: nil,
             session_id: nil,
             last_codex_message: nil,
@@ -790,6 +798,7 @@ defmodule SardineRun.Orchestrator do
           })
 
         write_session_dashboard_url(issue.id, issue.identifier)
+        write_session_worker_kind(issue.id, worker_kind)
 
         %{
           state
@@ -1152,6 +1161,19 @@ defmodule SardineRun.Orchestrator do
     Map.put(running_entry, key, value)
   end
 
+  defp pick_worker(%State{} = _state, _issue) do
+    probability =
+      case Config.settings!().agent.sampling do
+        %{claude_probability: prob} when is_number(prob) -> prob
+        _ -> 0.0
+      end
+
+    case Sampler.pick(probability) do
+      :claude -> {SardineRun.Claude.AppServer, :claude}
+      :codex -> {SardineRun.Codex.AppServer, :codex}
+    end
+  end
+
   defp select_worker_host(%State{} = state, preferred_worker_host) do
     case Config.settings!().worker.ssh_hosts do
       [] ->
@@ -1293,6 +1315,7 @@ defmodule SardineRun.Orchestrator do
           identifier: metadata.identifier,
           state: metadata.issue.state,
           worker_host: Map.get(metadata, :worker_host),
+          worker_kind: Map.get(metadata, :worker_kind),
           workspace_path: Map.get(metadata, :workspace_path),
           session_id: metadata.session_id,
           codex_app_server_pid: metadata.codex_app_server_pid,
@@ -1899,6 +1922,23 @@ defmodule SardineRun.Orchestrator do
       {:error, reason} = err ->
         Logger.debug("Could not write dashboard_url for issue_id=#{issue_id}: #{inspect(reason)}")
         err
+    end
+  end
+
+  @doc """
+  Best-effort write of the bound `worker_kind` (`:codex` or `:claude`) to
+  the session's `sardine_run.worker_kind` runtime field. Errors are logged
+  and swallowed since this is observability metadata.
+  """
+  @spec write_session_worker_kind(String.t(), atom() | String.t()) :: :ok
+  def write_session_worker_kind(issue_id, worker_kind) when is_binary(issue_id) do
+    case SessionWriter.update_runtime(issue_id, %{worker_kind: to_string(worker_kind)}) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Could not write worker_kind for issue_id=#{issue_id}: #{inspect(reason)}")
+        :ok
     end
   end
 

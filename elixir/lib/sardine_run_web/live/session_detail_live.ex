@@ -133,6 +133,14 @@ defmodule SardineRunWeb.SessionDetailLive do
                 <dd class="metric-value"><%= payload.live_state.state || "n/a" %></dd>
               </div>
               <div class="metric-card">
+                <dt class="metric-label">Worker</dt>
+                <dd class="metric-value">
+                  <span class={worker_kind_badge_class(Map.get(payload.live_state, :worker_kind))}>
+                    <%= worker_kind_label(Map.get(payload.live_state, :worker_kind)) %>
+                  </span>
+                </dd>
+              </div>
+              <div class="metric-card">
                 <dt class="metric-label">Session</dt>
                 <dd class="metric-value mono"><%= payload.live_state.session_id || "n/a" %></dd>
               </div>
@@ -356,4 +364,27 @@ defmodule SardineRunWeb.SessionDetailLive do
 
   defp format_int(value) when is_integer(value), do: Integer.to_string(value)
   defp format_int(_value), do: "n/a"
+
+  defp worker_kind_badge_class(worker_kind) do
+    base = "state-badge worker-kind-badge"
+
+    case worker_kind_normalized(worker_kind) do
+      "claude" -> "#{base} worker-kind-claude"
+      "codex" -> "#{base} worker-kind-codex"
+      _ -> base
+    end
+  end
+
+  defp worker_kind_label(worker_kind) do
+    case worker_kind_normalized(worker_kind) do
+      "" -> "[?]"
+      kind -> "[#{kind}]"
+    end
+  end
+
+  defp worker_kind_normalized(nil), do: ""
+
+  defp worker_kind_normalized(worker_kind) do
+    worker_kind |> to_string() |> String.trim() |> String.downcase()
+  end
 end

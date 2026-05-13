@@ -403,6 +403,7 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   defp live_state(running, retry) when is_map(running) do
     %{
       state: running.state,
+      worker_kind: Map.get(running, :worker_kind),
       session_id: running.session_id,
       turn_count: Map.get(running, :turn_count, 0),
       started_at: iso8601(running.started_at),
@@ -422,6 +423,7 @@ defmodule SardineRunWeb.SessionDetailPresenter do
   defp live_state(_running, retry) when is_map(retry) do
     %{
       state: nil,
+      worker_kind: Map.get(retry, :worker_kind),
       session_id: nil,
       turn_count: 0,
       started_at: nil,

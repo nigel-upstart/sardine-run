@@ -198,6 +198,7 @@ defmodule SardineRun.ExtensionsTest do
                  "issue_identifier" => "MT-HTTP",
                  "state" => "In Progress",
                  "worker_host" => nil,
+                 "worker_kind" => nil,
                  "workspace_path" => nil,
                  "session_id" => "thread-http",
                  "turn_count" => 7,
@@ -242,6 +243,7 @@ defmodule SardineRun.ExtensionsTest do
              "attempts" => %{"restart_count" => 0, "current_retry_attempt" => 0},
              "running" => %{
                "worker_host" => nil,
+               "worker_kind" => nil,
                "workspace_path" => nil,
                "session_id" => "thread-http",
                "turn_count" => 7,
