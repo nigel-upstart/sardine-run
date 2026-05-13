@@ -210,28 +210,29 @@ defmodule SardineRun.Workspace do
   defp maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
     hooks = Config.settings!().hooks
 
-    case created? do
-      true ->
-        case hooks.after_create do
-          nil ->
-            :ok
-
-          command ->
-            case run_hook(command, workspace, issue_context, "after_create", worker_host) do
-              :ok ->
-                :ok
-
-              {:error, _reason} = err ->
-                # Wipe the freshly-created workspace so the next attempt re-runs
-                # after_create from scratch instead of reusing a half-initialized
-                # directory. Best-effort: ignore cleanup failures.
-                cleanup_failed_workspace(workspace, worker_host)
-                err
-            end
-        end
-
-      false ->
+    case {created?, hooks.after_create} do
+      {true, nil} ->
         :ok
+
+      {true, command} ->
+        run_after_create_command(command, workspace, issue_context, worker_host)
+
+      {false, _} ->
+        :ok
+    end
+  end
+
+  defp run_after_create_command(command, workspace, issue_context, worker_host) do
+    case run_hook(command, workspace, issue_context, "after_create", worker_host) do
+      :ok ->
+        :ok
+
+      {:error, _reason} = err ->
+        # Wipe the freshly-created workspace so the next attempt re-runs
+        # after_create from scratch instead of reusing a half-initialized
+        # directory. Best-effort: ignore cleanup failures.
+        cleanup_failed_workspace(workspace, worker_host)
+        err
     end
   end
 
