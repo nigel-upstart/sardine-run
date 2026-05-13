@@ -47,8 +47,8 @@ them as your join keys during debugging.
 # 1) Narrow by ticket key (fastest entry point)
 rg -n "issue_identifier=MT-625" log/sardine-run.log*
 
-# 2) If needed, narrow by Linear UUID
-rg -n "issue_id=<linear-uuid>" log/sardine-run.log*
+# 2) If needed, narrow by tracker-internal issue UUID
+rg -n "issue_id=<uuid>" log/sardine-run.log*
 
 # 3) Pull session IDs seen for that ticket
 rg -o "session_id=[^ ;]+" log/sardine-run.log* | sort -u

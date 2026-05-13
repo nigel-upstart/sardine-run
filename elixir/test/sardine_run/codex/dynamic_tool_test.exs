@@ -339,22 +339,35 @@ defmodule SardineRun.Codex.DynamicToolTest do
 
   describe "execute/3 git_push operation" do
     defp make_git_workspace! do
-      dir = Path.join(System.tmp_dir!(), "git-ws-#{:erlang.unique_integer([:positive])}")
-      File.mkdir_p!(dir)
-      {_, 0} = System.cmd("git", ["init"], cd: dir, stderr_to_stdout: true)
-      {_, 0} = System.cmd("git", ["config", "user.email", "test@example.com"], cd: dir)
-      {_, 0} = System.cmd("git", ["config", "user.name", "Test"], cd: dir)
+      dir = make_unique_tmp_dir!("git-ws")
+      {_, 0} = System.cmd("git", ["-C", dir, "init", "--initial-branch=main"], stderr_to_stdout: true)
+      {_, 0} = System.cmd("git", ["-C", dir, "config", "user.email", "test@example.com"])
+      {_, 0} = System.cmd("git", ["-C", dir, "config", "user.name", "Test"])
+      {_, 0} = System.cmd("git", ["-C", dir, "config", "commit.gpgsign", "false"])
       File.write!(Path.join(dir, "README.md"), "hello")
-      {_, 0} = System.cmd("git", ["add", "."], cd: dir, stderr_to_stdout: true)
-      {_, 0} = System.cmd("git", ["commit", "-m", "init"], cd: dir, stderr_to_stdout: true)
-      {_, 0} = System.cmd("git", ["branch", "-M", "main"], cd: dir, stderr_to_stdout: true)
+      {_, 0} = System.cmd("git", ["-C", dir, "add", "README.md"], stderr_to_stdout: true)
+      {_, 0} = System.cmd("git", ["-C", dir, "commit", "-m", "init"], stderr_to_stdout: true)
       dir
     end
 
     defp make_bare_remote! do
-      dir = Path.join(System.tmp_dir!(), "git-remote-#{:erlang.unique_integer([:positive])}")
+      dir = make_unique_tmp_dir!("git-remote")
+      {_, 0} = System.cmd("git", ["-C", dir, "init", "--bare"], stderr_to_stdout: true)
+      dir
+    end
+
+    # Collision-resistant temp dir: `:erlang.unique_integer` is only unique
+    # *within* a VM, so dir numbers collide with leftover dirs from prior
+    # `mix test` runs (`/tmp/git-ws-228` from yesterday meets the new VM's
+    # 228 today → `git init` no-op's on the pre-existing `.git`, `git add`
+    # finds README.md already tracked, the index stays empty, and `git commit`
+    # fails with "nothing to commit"). Adding 8 random bytes makes collisions
+    # astronomically unlikely; `on_exit` cleans up to keep `/tmp` tidy.
+    defp make_unique_tmp_dir!(prefix) do
+      suffix = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+      dir = Path.join(System.tmp_dir!(), "#{prefix}-#{suffix}")
       File.mkdir_p!(dir)
-      {_, 0} = System.cmd("git", ["init", "--bare"], cd: dir, stderr_to_stdout: true)
+      on_exit(fn -> File.rm_rf!(dir) end)
       dir
     end
 
