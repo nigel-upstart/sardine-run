@@ -10,7 +10,7 @@ workspace until the session reaches a terminal state.
 ## How it works
 
 1. Sardine Run reads sessions from a Traffic Control state-repo on disk
-   (`$TRAFFIC_CONTROL_STATE_REPO`, by default `~/code/traffic-control-state`).
+   (`$TRAFFIC_CONTROL_STATE_REPO`, by default `~/repos/nigel-upstart/traffic-control-state`).
 2. Each `sessions/<id>/session.yaml` file with a status in `tracker.active_states` is candidate
    work.
 3. Sardine Run creates a workspace under `~/code/sardine-run-workspaces/<sanitized-id>` and

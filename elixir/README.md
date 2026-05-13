@@ -10,7 +10,7 @@ This directory contains the current Elixir/OTP implementation of Sardine Run, ba
 ## How it works
 
 1. Polls a Traffic Control state-repo (`$TRAFFIC_CONTROL_STATE_REPO`, default
-   `~/code/traffic-control-state`) for sessions whose `status` is in `tracker.active_states`.
+   `~/repos/nigel-upstart/traffic-control-state`) for sessions whose `status` is in `tracker.active_states`.
 2. Creates a workspace per session under `workspace.root` (recommended:
    `~/code/sardine-run-workspaces`).
 3. Launches a coding agent inside the workspace. By default that is Codex in
@@ -70,7 +70,7 @@ mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
-export TRAFFIC_CONTROL_STATE_REPO="$HOME/code/traffic-control-state"
+export TRAFFIC_CONTROL_STATE_REPO="$HOME/repos/nigel-upstart/traffic-control-state"
 mise exec -- ./bin/sardine-run \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   ./WORKFLOW.md

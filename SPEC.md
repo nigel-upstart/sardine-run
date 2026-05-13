@@ -282,7 +282,7 @@ Unknown keys SHOULD be ignored for forward compatibility.
   `~`-expanded path to the Traffic Control state repository.
   - Canonical environment variable: `TRAFFIC_CONTROL_STATE_REPO`. If `state_repo` is omitted or
     set to `$TRAFFIC_CONTROL_STATE_REPO`, the runtime resolves it from that environment variable.
-  - Default: `~/code/traffic-control-state`.
+  - Default: `~/repos/nigel-upstart/traffic-control-state`.
 - `active_states` (list of strings) — Default: `["active"]`.
 - `terminal_states` (list of strings) — Default: `["done", "archived"]`.
 
@@ -499,7 +499,7 @@ Validation checks:
 
 - `tracker.kind`: string, REQUIRED, supported values `traffic_control`, `memory`.
 - `tracker.state_repo`: path or `$VAR`, REQUIRED when `kind=traffic_control`. Default
-  `~/code/traffic-control-state`. Canonical env: `TRAFFIC_CONTROL_STATE_REPO`.
+  `~/repos/nigel-upstart/traffic-control-state`. Canonical env: `TRAFFIC_CONTROL_STATE_REPO`.
 - `tracker.active_states`: list of strings, default `["active", "review_pending"]`.
 - `tracker.terminal_states`: list of strings, default `["done", "archived"]`.
 - `polling.interval_ms`: integer, default `30000`.
