@@ -23,8 +23,17 @@ fmt-check:
 lint:
 	$(MIX) lint
 
+coverage: SHELL := /bin/bash
 coverage:
-	$(MIX) test --cover
+	@mkdir -p cover
+	# `coverage.gate` is the per-module enforcement; this target captures the
+	# summary table for it. A pre-existing flake in dynamic_tool_test git
+	# workspace setup makes `mix test --cover` fail ~5-20% of runs, so retry
+	# once before propagating failure.
+	@set -o pipefail; $(MIX) test --cover 2>&1 | tee cover/summary.txt || \
+		( echo "==> mix test --cover failed once, retrying..."; \
+		  set -o pipefail; $(MIX) test --cover 2>&1 | tee cover/summary.txt )
+	$(MIX) coverage.gate
 
 test:
 	$(MIX) test

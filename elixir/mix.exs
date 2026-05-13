@@ -8,10 +8,15 @@ defmodule SardineRun.MixProject do
       elixir: "~> 1.19",
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
+      # Coverage enforcement is handled by `mix coverage.gate` (see
+      # `lib/mix/tasks/coverage.gate.ex`) so that we can lock named modules at
+      # 100% while letting newer/less-tested modules sit above a global floor.
+      # `mix test --cover` keeps its summary table but no enforcement.
       test_coverage: [
-        summary: [
-          threshold: 75
-        ],
+        # The real gate is `mix coverage.gate` (lib/mix/tasks/coverage.gate.ex),
+        # which locks named modules at 100% and applies a global floor. Disable
+        # Mix's built-in threshold check so the summary table prints freely.
+        summary: [threshold: 0],
         ignore_modules: [
           SardineRun.Config,
           SardineRun.SpecsCheck,
