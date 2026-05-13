@@ -43,6 +43,104 @@ defmodule SardineRun.Review.GitHubTest do
     end
   end
 
+  describe "unresolved_threads/2" do
+    test "returns only threads where isResolved=false and isCollapsed=false" do
+      response =
+        Jason.encode!(%{
+          "data" => %{
+            "repository" => %{
+              "pullRequest" => %{
+                "reviewThreads" => %{
+                  "nodes" => [
+                    %{
+                      "id" => "PRRT_a",
+                      "isResolved" => false,
+                      "isCollapsed" => false,
+                      "comments" => %{
+                        "nodes" => [
+                          %{
+                            "databaseId" => 1,
+                            "body" => "unresolved",
+                            "path" => "lib/a.ex",
+                            "line" => 10,
+                            "author" => %{"login" => "alice"}
+                          }
+                        ]
+                      }
+                    },
+                    %{
+                      "id" => "PRRT_b",
+                      "isResolved" => true,
+                      "isCollapsed" => false,
+                      "comments" => %{"nodes" => [%{"databaseId" => 2, "body" => "resolved"}]}
+                    },
+                    %{
+                      "id" => "PRRT_c",
+                      "isResolved" => false,
+                      "isCollapsed" => true,
+                      "comments" => %{"nodes" => [%{"databaseId" => 3, "body" => "collapsed"}]}
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        })
+
+      runner = fn _args -> {response, 0} end
+
+      assert {:ok, [thread]} =
+               GitHub.unresolved_threads(%{owner: "o", repo: "r", number: 1}, runner: runner)
+
+      assert thread["thread_id"] == "PRRT_a"
+      assert thread["comment_id"] == 1
+      assert thread["author"] == "alice"
+    end
+
+    test "returns [] when reviewThreads is missing or shaped unexpectedly" do
+      runner = fn _ -> {Jason.encode!(%{"data" => %{}}), 0} end
+
+      assert {:ok, []} =
+               GitHub.unresolved_threads(%{owner: "o", repo: "r", number: 1}, runner: runner)
+    end
+  end
+
+  describe "failing_checks/2" do
+    test "filters to FAILURE / TIMED_OUT state" do
+      response =
+        Jason.encode!([
+          %{"name" => "ci/test", "state" => "FAILURE", "link" => "http://x"},
+          %{"name" => "ci/lint", "state" => "SUCCESS", "link" => "http://y"},
+          %{"name" => "ci/slow", "state" => "TIMED_OUT", "link" => "http://z"},
+          %{"name" => "ci/canc", "state" => "CANCELLED", "link" => "http://w"}
+        ])
+
+      runner = fn args ->
+        # confirm we hit the right `gh pr checks` flags
+        assert "pr" in args
+        assert "checks" in args
+        assert "--json" in args
+        {response, 0}
+      end
+
+      assert {:ok, failing} =
+               GitHub.failing_checks(%{owner: "o", repo: "r", number: 1}, runner: runner)
+
+      names = Enum.map(failing, & &1["name"])
+      assert "ci/test" in names
+      assert "ci/slow" in names
+      refute "ci/lint" in names
+      refute "ci/canc" in names
+    end
+
+    test "returns [] when gh emits an empty array" do
+      runner = fn _ -> {"[]", 0} end
+
+      assert {:ok, []} =
+               GitHub.failing_checks(%{owner: "o", repo: "r", number: 1}, runner: runner)
+    end
+  end
+
   describe "resolve_thread/3" do
     test "issues the resolveReviewThread GraphQL mutation" do
       runner = fn args ->

@@ -18,7 +18,6 @@ defmodule Mix.Tasks.Coverage.Gate do
     Mix.Tasks.Specs.Check,
     Mix.Tasks.Workspace.BeforeRemove,
     SardineRun,
-    SardineRun.Application,
     SardineRun.Config.Schema,
     SardineRun.Config.Schema.Agent,
     SardineRun.Config.Schema.Claude,

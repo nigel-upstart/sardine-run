@@ -77,6 +77,100 @@ defmodule SardineRun.Review.GitHub do
     end
   end
 
+  @doc """
+  Lists unresolved review threads on a PR.
+
+  Returns a list of maps shaped like:
+
+      %{
+        "thread_id" => "PRRT_…",         # GraphQL node ID (for resolve_thread)
+        "comment_id" => 12345,           # REST databaseId of the first comment
+        "path" => "lib/foo.ex",
+        "line" => 42,
+        "author" => "alice",
+        "body" => "consider extracting …"
+      }
+
+  Threads marked `isResolved: true` and pure-bot / outdated threads
+  (`isCollapsed: true`) are filtered out before returning.
+  """
+  @spec unresolved_threads(pr_ref(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def unresolved_threads(%{owner: owner, repo: repo, number: number}, opts \\ []) do
+    runner = Keyword.get(opts, :runner, &default_runner/1)
+
+    query = """
+    query { repository(owner: "#{owner}", name: "#{repo}") { pullRequest(number: #{number}) {\
+     reviewThreads(first: 100) { nodes { id isResolved isCollapsed\
+     comments(first: 1) { nodes { databaseId body path line author { login } } } } } } } }
+    """
+
+    case invoke(runner, ["api", "graphql", "-f", "query=#{query}"]) do
+      {:ok, response} -> {:ok, extract_unresolved_threads(response)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Lists failing checks on a PR. Returns entries shaped like
+  `%{"name" => "ci/test", "url" => "…", "conclusion" => "failure"}`.
+
+  Includes checks whose conclusion is `failure` or `timed_out`; ignores
+  cancelled, skipped, neutral, and in-progress runs so we only nudge the
+  reviewer when there's something to actually fix.
+  """
+  @spec failing_checks(pr_ref(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def failing_checks(%{owner: owner, repo: repo, number: number}, opts \\ []) do
+    runner = Keyword.get(opts, :runner, &default_runner/1)
+
+    args = [
+      "pr",
+      "checks",
+      "#{number}",
+      "--repo",
+      "#{owner}/#{repo}",
+      "--json",
+      "name,state,link"
+    ]
+
+    case invoke(runner, args) do
+      {:ok, checks} when is_list(checks) -> {:ok, Enum.filter(checks, &failing?/1)}
+      {:ok, _} -> {:ok, []}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp extract_unresolved_threads(%{"data" => %{"repository" => %{"pullRequest" => %{"reviewThreads" => %{"nodes" => threads}}}}}) when is_list(threads) do
+    threads
+    |> Enum.reject(&hidden_thread?/1)
+    |> Enum.flat_map(&extract_thread_summary/1)
+  end
+
+  defp extract_unresolved_threads(_response), do: []
+
+  defp hidden_thread?(thread) do
+    Map.get(thread, "isResolved", false) or Map.get(thread, "isCollapsed", false)
+  end
+
+  defp extract_thread_summary(%{"id" => thread_id, "comments" => %{"nodes" => [first | _]}}) do
+    [
+      %{
+        "thread_id" => thread_id,
+        "comment_id" => Map.get(first, "databaseId"),
+        "body" => Map.get(first, "body"),
+        "path" => Map.get(first, "path"),
+        "line" => Map.get(first, "line"),
+        "author" => get_in(first, ["author", "login"])
+      }
+    ]
+  end
+
+  defp extract_thread_summary(_thread), do: []
+
+  defp failing?(%{"state" => state}) when is_binary(state),
+    do: String.upcase(state) in ["FAILURE", "TIMED_OUT", "FAIL", "FAILING"]
+
+  defp failing?(_check), do: false
+
   defp invoke(runner, args) do
     case runner.(args) do
       {output, 0} -> {:ok, parse_json(output)}
