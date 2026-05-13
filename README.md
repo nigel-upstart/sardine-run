@@ -23,7 +23,12 @@ workspace until the session reaches a terminal state.
 4. The agent sees the workflow prompt and a single dynamic tool, `sardine_run_session`, which it
    uses to update its assigned session: change status, append notes, record links, send heartbeats,
    and set focus / next_step.
-5. When the session moves to `done` or `archived`, Sardine Run stops the agent and cleans the
+5. When the agent opens a PR and moves the session to `review`, a background watcher polls
+   GitHub every ~5 minutes (with up to 60s jitter) for unresolved review comments and failing
+   CI checks. If any show up, the session is flipped to `review_pending` and dispatched to the
+   🐡 reviewer species — a specialized prompt focused on responding to each thread (push fix
+   + reply, OR substantive reject + resolve, OR hand off to a human).
+6. When the session moves to `done` or `archived`, Sardine Run stops the agent and cleans the
    workspace.
 
 There is no API, no token, no cloud tracker. Reads and writes happen against a local Git-tracked

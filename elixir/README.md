@@ -24,8 +24,16 @@ This directory contains the current Elixir/OTP implementation of Sardine Run, ba
 4. Renders the `WORKFLOW.md` prompt body with the session's `Issue` record and sends it as the
    first turn.
 5. Advertises one client-side dynamic tool, `sardine_run_session`, that the agent uses to manage
-   its assigned session (status, heartbeat, note, link, focus, next_step).
-6. Keeps the agent running on the session until it reaches a terminal status (`done`, `archived`
+   its assigned session (status, heartbeat, note, link, focus, next_step, git_push).
+6. When the agent transitions to `review` after opening a PR, the `SardineRun.ReviewWatcher`
+   GenServer polls GitHub every `review.poll_interval_ms` + `uniform(0, review.poll_jitter_ms)`
+   (defaults 5min + ≤60s) for unresolved review threads and failing CI checks. If any show
+   up, the watcher writes a `sessions/<id>/pending_feedback.yaml` snapshot and flips the
+   session to `review_pending`. Dispatch then routes the session deterministically to the
+   🐡 reviewer species — same Codex/Claude backend, but with `REVIEW_FEEDBACK.md` rendered
+   as the prompt and four extra tool ops (`list_review_comments`, `reply_to_comment`,
+   `resolve_thread`, `request_human_help`) to address each thread.
+7. Keeps the agent running on the session until it reaches a terminal status (`done`, `archived`
    by default).
 
 If a claimed session moves to a terminal state, Sardine Run stops the active agent and cleans the

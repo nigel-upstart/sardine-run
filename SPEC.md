@@ -190,8 +190,11 @@ State tracked while a coding-agent subprocess is running.
 - `session_id` (string, `<thread_id>-<turn_id>`)
 - `thread_id` (string)
 - `turn_id` (string)
-- `worker_kind` (string or null) — the agent backend bound to this session
-  (for example `codex`, `claude`). Selected at dispatch time per §6.5.
+- `worker_kind` (string or null) — the agent species bound to this session
+  (`codex`, `claude`, or `reviewer`). For `codex`/`claude` the species is
+  selected probabilistically per §6.5. For `reviewer` the species is
+  deterministically selected when the session's `status` is
+  `review_pending`; see §6.6.
 - `codex_app_server_pid` (string or null)
 - `last_codex_event` (string or null)
 - `last_codex_timestamp` (timestamp or null)
@@ -361,6 +364,39 @@ To inspect the installed Codex schema, run `codex app-server generate-json-schem
 - `read_timeout_ms` (integer) — Default: `5000`.
 - `stall_timeout_ms` (integer) — Default: `300000` (5 minutes). `<= 0` disables stall detection.
 
+#### 5.3.8 `review` (object, OPTIONAL)
+
+Configuration for the 🐡 review-feedback processor — the deterministic
+worker species dispatched when a session is in `review_pending` (see §6.6).
+
+- `enabled` (boolean) — Default: `true`. When `false`, the implementation
+  MUST NOT start the watcher and MUST NOT auto-flip any session from
+  `review` to `review_pending`. The `:reviewer` species is still selectable
+  if external code manually puts a session into `review_pending`.
+- `poll_interval_ms` (positive integer) — Default: `300000` (5 minutes).
+  Base interval between watcher ticks.
+- `poll_jitter_ms` (non-negative integer) — Default: `60000` (1 minute).
+  Each tick fires `poll_interval_ms + uniform_random(0, poll_jitter_ms)`
+  after the previous tick to avoid lock-step polling across instances.
+- `backend` (`codex` or `claude`) — Default: `codex`. Which underlying
+  agent backend the `:reviewer` species wraps. The reviewer reuses the
+  selected backend's transport (Codex App Server or Claude Code CLI) but
+  renders a different prompt body.
+- `prompt_file` (string) — Default: `REVIEW_FEEDBACK.md`. Path to the
+  reviewer prompt template, resolved relative to `WORKFLOW.md`'s
+  directory. Liquid-templated; input vars are `issue` (per §5.4) and
+  `pending_feedback` (the snapshot the watcher wrote to
+  `sessions/<id>/pending_feedback.yaml`).
+- `check_ci` (boolean) — Default: `true`. When `true`, the watcher also
+  pulls `gh pr checks --json` and treats `state ∈ {FAILURE, TIMED_OUT}`
+  entries as pending feedback.
+- `auto_resolve_on_reject` (boolean) — Default: `true`. Whether the
+  reviewer is permitted to call `resolve_thread` after a substantive
+  `reply_to_comment`. When `false`, the reviewer SHOULD only `reply` and
+  let humans resolve. The implementation MAY enforce a minimum-substance
+  check; the prompt SHOULD set the bar (at least two sentences of
+  substantive reasoning).
+
 ### 5.4 Prompt Template Contract
 
 The Markdown body of `WORKFLOW.md` is the per-session prompt template.
@@ -460,7 +496,7 @@ Validation checks:
 - `tracker.kind`: string, REQUIRED, supported values `traffic_control`, `memory`.
 - `tracker.state_repo`: path or `$VAR`, REQUIRED when `kind=traffic_control`. Default
   `~/code/traffic-control-state`. Canonical env: `TRAFFIC_CONTROL_STATE_REPO`.
-- `tracker.active_states`: list of strings, default `["active"]`.
+- `tracker.active_states`: list of strings, default `["active", "review_pending"]`.
 - `tracker.terminal_states`: list of strings, default `["done", "archived"]`.
 - `polling.interval_ms`: integer, default `30000`.
 - `workspace.root`: path resolved to absolute, default `<system-temp>/sardine_run_workspaces`;
@@ -481,6 +517,14 @@ Validation checks:
 - `codex.turn_timeout_ms`: integer, default `3600000`.
 - `codex.read_timeout_ms`: integer, default `5000`.
 - `codex.stall_timeout_ms`: integer, default `300000`.
+- `review.enabled`: boolean, default `true`.
+- `review.poll_interval_ms`: integer, default `300000` (5 minutes).
+- `review.poll_jitter_ms`: integer, default `60000` (1 minute).
+- `review.backend`: `codex` or `claude`, default `codex`.
+- `review.prompt_file`: string, default `REVIEW_FEEDBACK.md` (resolved
+  relative to `WORKFLOW.md`'s directory).
+- `review.check_ci`: boolean, default `true`.
+- `review.auto_resolve_on_reject`: boolean, default `true`.
 
 ### 6.5 Probabilistic Worker Selection (OPTIONAL)
 
@@ -494,6 +538,72 @@ MAY be exposed via the runtime/`sardine_run.worker_kind` block on
 
 Selection is per-dispatch and bound for the entire worker lifetime, including
 continuation turns; the runtime MUST NOT swap workers mid-session.
+
+### 6.6 Review-Feedback Worker Selection (OPTIONAL)
+
+When the implementation supports the 🐡 reviewer species, dispatch MUST
+short-circuit the probabilistic selector from §6.5 for any session whose
+normalized `state` is `"review_pending"` and instead bind the
+`:reviewer` species, transported by the backend configured in
+`review.backend`. The selected `worker_kind` for the live session
+(§4.1.6) is the literal string `"reviewer"`.
+
+The reviewer SHARES the `sardine_run_session` dynamic-tool surface with
+the other species and gets four additional operations:
+`list_review_comments`, `reply_to_comment`, `resolve_thread`, and
+`request_human_help` (§10.5). The default WORKFLOW.md prompt body is
+replaced by the contents of `review.prompt_file` (default
+`REVIEW_FEEDBACK.md`), rendered with the same Liquid engine as the
+default prompt plus an additional top-level `pending_feedback` variable.
+
+The transition into `review_pending` MAY happen via §6.7's watcher, or
+via any external mechanism that writes `status: review_pending` to
+`session.yaml` (for example a CLI helper or a webhook bridge).
+
+### 6.7 Review Watcher (OPTIONAL)
+
+When `review.enabled` is `true` the implementation MUST start a
+background watcher that:
+
+1. Wakes on a recurring schedule. Each tick fires
+   `review.poll_interval_ms + uniform_random(0, review.poll_jitter_ms)`
+   after the previous tick.
+2. Queries the configured tracker for issues whose normalized state is
+   `"review"`.
+3. For each such session, resolves the first `link_kind: pr` entry in
+   `links.yaml`. Sessions without a PR link are skipped.
+4. Queries GitHub for that PR's unresolved review threads and — when
+   `review.check_ci` is `true` — its failing CI checks.
+5. If either has any entries, writes a snapshot to
+   `sessions/<id>/pending_feedback.yaml` (JSON-encoded; JSON ⊂ YAML 1.2)
+   and updates the session's `status` from `"review"` to
+   `"review_pending"`, signalling the orchestrator's dispatch path to
+   pick up the session with the reviewer species.
+
+`pending_feedback.yaml` shape:
+
+```yaml
+{
+  "snapshot_at": "<RFC 3339 timestamp>",
+  "threads": [
+    {
+      "thread_id": "<GraphQL node id, e.g. PRRT_…>",
+      "comment_id": <REST databaseId of the first comment>,
+      "path": "<file path>",
+      "line": <line number>,
+      "author": "<github login>",
+      "body": "<comment body>"
+    }
+  ],
+  "failing_checks": [
+    {"name": "<check name>", "state": "FAILURE | TIMED_OUT", "link": "<url>"}
+  ]
+}
+```
+
+External (non-watcher) tooling MAY write the same file shape directly
+and flip the status manually; the reviewer prompt reads whatever
+snapshot is on disk.
 
 ## 7. Orchestration State Machine
 
@@ -786,12 +896,12 @@ Tool input shape:
 
 ```json
 {
-  "operation": "status | heartbeat | note | link | focus | next_step | git_push",
+  "operation": "status | heartbeat | note | link | focus | next_step | git_push | list_review_comments | reply_to_comment | resolve_thread | request_human_help",
   "session_id": "<traffic-control-session-id>",
-  "status": "active | blocked | waiting | review | done | archived",
+  "status": "active | blocked | waiting | review | review_pending | done | archived",
   "waiting_kind": "human | ci | review | external | other",
   "waiting_note": "free text",
-  "body": "markdown body for note",
+  "body": "markdown body for note / reply / human-help request",
   "label": "link label",
   "link_kind": "jira | slack | pr | doc | repo | other",
   "url": "https://...",
@@ -803,7 +913,10 @@ Tool input shape:
   "total_tokens": 579,
   "value": "string for focus/next_step",
   "branch": "branch-name-to-push",
-  "remote": "origin"
+  "remote": "origin",
+  "comment_id": 12345,
+  "thread_id": "PRRT_…",
+  "reason": "rationale for resolve_thread"
 }
 ```
 
@@ -822,12 +935,31 @@ Tool input shape:
   are validated: must not start with `-`, must not contain `..`, and must match
   `[a-zA-Z0-9][a-zA-Z0-9._\-\/]*`. On success returns `{"success": true, "output": "..."}`. On
   push failure returns `{"success": false, "error": {"kind": "git_push_failed", ...}}`.
+- `list_review_comments` — reviewer-only. No additional args. Returns the
+  current `pending_feedback` snapshot the watcher (§6.6) wrote to
+  `sessions/<id>/pending_feedback.yaml`, or `{}` when no snapshot exists.
+- `reply_to_comment` — reviewer-only. `comment_id` (integer) and `body`
+  (string) are required. The orchestrator resolves the PR via the
+  session's first `link_kind: pr` link and POSTs an inline reply via
+  `gh api repos/{owner}/{repo}/pulls/{number}/comments -f body=… -F
+  in_reply_to=<comment_id>`. Fails with `kind: gh_failed` on gh
+  non-zero exit.
+- `resolve_thread` — reviewer-only. `thread_id` (GraphQL node id,
+  validated against `[A-Za-z0-9_-]+`) and `reason` (string, recorded for
+  caller bookkeeping) are required. Issues the
+  `resolveReviewThread` GraphQL mutation via `gh api graphql`. The
+  substantive reply belongs in the preceding `reply_to_comment`; the
+  `reason` is a short rationale for the resolve action itself.
+- `request_human_help` — reviewer-only. `body` (string) is required.
+  Flips the session's status to `waiting` with `waiting_kind: human` and
+  records `body` as the waiting note.
 
 Tool result semantics:
 
 - Success returns `{"success": true, ...}` with the operation echo.
 - Validation failures return `{"success": false, "error": {"kind": "invalid_arguments", ...}}`.
 - Filesystem write failures return `{"success": false, "error": {"kind": "writer_error", ...}}`.
+- gh non-zero exits return `{"success": false, "error": {"kind": "gh_failed", ...}}`.
 
 Implementations MUST advertise this tool during session startup so that the agent can drive its
 assigned session. Implementations MAY add additional client-side tools.
@@ -883,7 +1015,10 @@ The adapter:
 - Normalizes status values for state comparison (`lowercase`).
 - Maps the directory name to both `id` and `identifier`.
 
-Recognized status values: `active`, `blocked`, `waiting`, `review`, `done`, `archived`.
+Recognized status values: `active`, `blocked`, `waiting`, `review`, `review_pending`,
+`done`, `archived`. `review_pending` is a derived state: an external watcher (§6.7) or
+the reviewer agent itself transitions a session into and out of this status; tracker
+adapters MUST round-trip it like any other status value.
 
 ### 11.3 Tracker Writes
 
@@ -1392,7 +1527,7 @@ A conforming implementation SHOULD include tests covering the behaviors below.
 - Issue-state refresh by ID returns minimal normalized issues.
 - Empty `fetch_issues_by_states([])` returns empty without filesystem traversal.
 - Missing/invalid state repo produces typed errors.
-- Status normalization handles `active|blocked|waiting|review|done|archived`.
+- Status normalization handles `active|blocked|waiting|review|review_pending|done|archived`.
 
 ### 17.4 Orchestrator Dispatch, Reconciliation, and Retry
 

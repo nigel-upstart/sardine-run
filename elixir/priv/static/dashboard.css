@@ -383,6 +383,16 @@ pre,
   color: var(--danger);
 }
 
+/* Worker-kind badges: visually distinguish review-feedback runs (🐡 reviewer)
+   from regular Codex/Claude build runs. Codex and Claude inherit the base
+   .state-badge style; reviewer gets a pufferfish-coral tint so it pops on
+   the dashboard during review-processing turns. */
+.worker-kind-reviewer {
+  background: #fff1ec;
+  border-color: #f8c8b6;
+  color: #b34a26;
+}
+
 .issue-id {
   font-weight: 600;
   letter-spacing: -0.01em;
