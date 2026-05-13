@@ -111,6 +111,25 @@ defmodule SardineRun.Codex.DynamicTool do
   @spec tool_specs() :: [map()]
   def tool_specs, do: [@tool_spec]
 
+  @doc """
+  Returns the single tool spec map (same entry that `tool_specs/0` wraps in a list).
+
+  Exposed so transports that advertise tools individually — for example the
+  stdio MCP server used by `SardineRun.Claude.AppServer` — can reuse the exact
+  schema without duplicating it.
+  """
+  @spec tool_spec() :: map()
+  def tool_spec, do: @tool_spec
+
+  @doc """
+  Returns the canonical tool name (`"sardine_run_session"`).
+
+  Public so MCP/tool transports outside this module can match incoming tool
+  calls without hard-coding the string.
+  """
+  @spec tool_name() :: String.t()
+  def tool_name, do: @tool_name
+
   def execute(tool, arguments, opts \\ [])
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
@@ -341,7 +360,6 @@ defmodule SardineRun.Codex.DynamicTool do
 
   defp format_writer_reason(:enoent), do: "session.yaml not found (enoent)."
   defp format_writer_reason(:state_repo_not_configured), do: "tracker.state_repo is not configured."
-  defp format_writer_reason(reason) when is_binary(reason), do: reason
   defp format_writer_reason(reason), do: inspect(reason)
 
   defp success(payload) do

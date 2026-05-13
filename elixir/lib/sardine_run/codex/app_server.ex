@@ -1,10 +1,19 @@
 defmodule SardineRun.Codex.AppServer do
   @moduledoc """
   Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio.
+
+  Implements `SardineRun.Worker` so the orchestrator can swap it out for
+  another backend (see `SardineRun.Claude.AppServer`).
   """
+
+  @behaviour SardineRun.Worker
 
   require Logger
   alias SardineRun.{Codex.DynamicTool, Config, PathSafety, SSH}
+
+  @impl SardineRun.Worker
+  @spec kind() :: :codex
+  def kind, do: :codex
 
   @initialize_id 1
   @thread_start_id 2
@@ -36,6 +45,7 @@ defmodule SardineRun.Codex.AppServer do
     end
   end
 
+  @impl SardineRun.Worker
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
@@ -66,6 +76,7 @@ defmodule SardineRun.Codex.AppServer do
     end
   end
 
+  @impl SardineRun.Worker
   @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_turn(
         %{
@@ -139,6 +150,7 @@ defmodule SardineRun.Codex.AppServer do
     end
   end
 
+  @impl SardineRun.Worker
   @spec stop_session(session()) :: :ok
   def stop_session(%{port: port}) when is_port(port) do
     stop_port(port)
