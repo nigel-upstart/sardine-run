@@ -1,3 +1,5 @@
+Migrated to sardine-run-stack instead to contain traffic-control bits in a monorepo!
+
 # Sardine Run
 
 Sardine Run turns project work into isolated, autonomous coding-agent runs. It polls a Traffic
